@@ -2716,6 +2716,51 @@ input, select {
   min-width: 224px;
   z-index: 100;
 }
+.message-reaction-picker-anchored {
+  transform: none;
+}
+
+/* Баннер «новые сообщения» в чате */
+.chat-new-messages-banner {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: #5865f2;
+  color: #fff;
+  font-size: 14px;
+  border-radius: 4px;
+  margin: 8px 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.chat-new-messages-text {
+  font-weight: 500;
+}
+.chat-new-messages-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.25);
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.chat-new-messages-btn:hover {
+  background: rgba(255,255,255,0.35);
+}
+.chat-new-messages-btn-icon {
+  font-size: 14px;
+}
 
 .message-edit-form {
   display: flex;

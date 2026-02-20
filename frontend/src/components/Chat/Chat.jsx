@@ -299,6 +299,7 @@ export default function Chat({
 }) {
   const [messageText, setMessageText] = useState('');
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -316,6 +317,8 @@ export default function Chat({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState(null);
+  const [reactionPickerAnchor, setReactionPickerAnchor] = useState(null); // { left, top } для позиции попапа
+  const reactionPickerPopoverRef = useRef(null);
   const [recentEmojis, setRecentEmojis] = useState(getRecentEmojis);
   const pswpInstanceRef = useRef(null);
   const [favoriteGifUrls, setFavoriteGifUrls] = useState(new Set());
@@ -325,6 +328,11 @@ export default function Chat({
   const [folderPickerFolders, setFolderPickerFolders] = useState([]);
   const emojiPickerRef = useRef(null);
   const emojiToolbarBtnRef = useRef(null);
+  const scrollPositionsRef = useRef({}); // channelId -> scrollTop
+  const prevChannelIdRef = useRef(null);
+  const isAtBottomRef = useRef(true);
+  const [unreadBelowCount, setUnreadBelowCount] = useState(0);
+  const messagesLengthRef = useRef(0);
 
   const hasEditPermission = (() => {
     if (isOwner) return true;
@@ -350,13 +358,89 @@ export default function Chat({
     });
   })();
 
+  // Сохраняем позицию прокрутки при уходе с канала
   useEffect(() => {
-    if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const prev = prevChannelIdRef.current;
+    const el = messagesContainerRef.current;
+    if (prev != null && prev !== channel?.id && el) {
+      scrollPositionsRef.current[prev] = el.scrollTop;
+    }
+    prevChannelIdRef.current = channel?.id ?? null;
+    if (channel?.id != null) {
+      messagesLengthRef.current = 0;
+      setUnreadBelowCount(0);
+    }
+  }, [channel?.id]);
+
+  // Обновляем «у низа ли пользователь» при прокрутке
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 120;
+      if (isAtBottomRef.current) setUnreadBelowCount(0);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [channel?.id]);
+
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el || !channel?.id) return;
+    const saved = scrollPositionsRef.current[channel.id];
+    const prevLen = messagesLengthRef.current;
+    const newMessagesCount = messages.length - prevLen;
+    messagesLengthRef.current = messages.length;
+
+    if (saved != null) {
+      delete scrollPositionsRef.current[channel.id];
+      requestAnimationFrame(() => { el.scrollTop = saved; });
+      return;
+    }
+
+    const scrollToEnd = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const atBottom = isAtBottomRef.current;
+    // Новые сообщения пришли по сокету (уже были сообщения), а пользователь не у низа — не скроллить, показать баннер
+    if (prevLen > 0 && newMessagesCount > 0 && !atBottom) {
+      setUnreadBelowCount(c => c + newMessagesCount);
+      return;
+    }
+    scrollToEnd();
+    const t1 = setTimeout(scrollToEnd, 200);
+    const t2 = setTimeout(scrollToEnd, 600);
+    const t3 = setTimeout(scrollToEnd, 1200);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [messages, channel?.id]);
+
+  // При росте контента (загрузка медиа) прокручиваем вниз, если пользователь уже у низа
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      const nearBottom = scrollHeight - scrollTop - clientHeight < 300;
+      if (nearBottom) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [channel?.id]);
 
   useEffect(() => {
     if (editingMessageId && editInputRef.current) editInputRef.current.focus();
   }, [editingMessageId]);
+
+  // Закрытие окна реакций по клику вне (не при наведении на другое сообщение)
+  useEffect(() => {
+    if (!reactionPickerMessageId) return;
+    const onMouseDown = (e) => {
+      if (reactionPickerPopoverRef.current?.contains(e.target)) return;
+      setReactionPickerMessageId(null);
+      setReactionPickerAnchor(null);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [reactionPickerMessageId]);
 
   useEffect(() => {
     if (!showEmojiPicker) return;
@@ -554,6 +638,7 @@ export default function Chat({
     const socket = getSocket();
     if (socket) socket.emit('reaction_add', { messageId, emoji });
     setReactionPickerMessageId(null);
+    setReactionPickerAnchor(null);
   };
   const handleReactionRemove = (messageId, emoji) => {
     const socket = getSocket();
@@ -917,7 +1002,40 @@ export default function Chat({
         )}
       </div>
 
-      <div className="chat-messages">
+      {reactionPickerMessageId != null && reactionPickerAnchor && createPortal(
+        <div
+          ref={reactionPickerPopoverRef}
+          className="message-reaction-picker message-reaction-picker-popover message-reaction-picker-anchored"
+          style={{
+            left: reactionPickerAnchor.left,
+            bottom: typeof window !== 'undefined' ? window.innerHeight - reactionPickerAnchor.top + 8 : 0,
+            transform: 'none'
+          }}
+        >
+          {EMOJI_ALL.map((emoji, idx) => (
+            <button
+              key={idx}
+              type="button"
+              className="message-reaction-picker-btn"
+              onMouseDown={(e) => { e.preventDefault(); handleReactionAdd(reactionPickerMessageId, emoji); }}
+            >{emoji}</button>
+          ))}
+        </div>,
+        document.body
+      )}
+
+      <div className="chat-messages" ref={messagesContainerRef}>
+        {unreadBelowCount > 0 && (
+          <div className="chat-new-messages-banner">
+            <span className="chat-new-messages-text">
+              {unreadBelowCount === 1 ? '1 новое сообщение' : `${unreadBelowCount} новых сообщений`}
+            </span>
+            <button type="button" className="chat-new-messages-btn" onClick={() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); setUnreadBelowCount(0); }}>
+              Пометить как прочитанное
+              <span className="chat-new-messages-btn-icon">✓</span>
+            </button>
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="chat-welcome">
             <div className="chat-welcome-icon">#</div>
@@ -1050,14 +1168,21 @@ export default function Chat({
                     {(recentEmojis.length ? recentEmojis : EMOJI_ALL).slice(0, 3).map((emoji, i) => (
                       <button key={i} type="button" className="message-action-btn message-action-emoji" onClick={() => handleReactionAdd(msg.id, emoji)} title="Добавить реакцию">{emoji}</button>
                     ))}
-                    <button type="button" className="message-action-btn message-action-emoji-picker" onClick={() => setReactionPickerMessageId(prev => prev === msg.id ? null : msg.id)} title="Выбрать эмодзи"><span className="message-action-emoji-icon">☺</span></button>
-                    {reactionPickerMessageId === msg.id && (
-                      <div className="message-reaction-picker message-reaction-picker-popover">
-                        {EMOJI_ALL.map((emoji, idx) => (
-                          <button key={idx} type="button" className="message-reaction-picker-btn" onMouseDown={(e) => { e.preventDefault(); handleReactionAdd(msg.id, emoji); }}>{emoji}</button>
-                        ))}
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      className="message-action-btn message-action-emoji-picker"
+                      onClick={(e) => {
+                        if (reactionPickerMessageId === msg.id) {
+                          setReactionPickerMessageId(null);
+                          setReactionPickerAnchor(null);
+                        } else {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setReactionPickerMessageId(msg.id);
+                          setReactionPickerAnchor({ left: rect.left, top: rect.top, bottom: rect.bottom });
+                        }
+                      }}
+                      title="Выбрать эмодзи"
+                    ><span className="message-action-emoji-icon">☺</span></button>
                     {canEdit && (
                       <button className="message-action-btn" onClick={() => startEdit(msg)} title="Редактировать">✏️</button>
                     )}

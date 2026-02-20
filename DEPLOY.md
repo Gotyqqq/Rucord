@@ -227,11 +227,12 @@ sudo nginx -t
 Подключись по SSH и выполни (подставь свой путь, если заходишь не под `root`):
 
 ```bash
-cd ~/rucord
+cd ~/Rucord
 git pull --ff-only
 
 cd backend
 npm install
+# В бэкенде нет шага build — только во фронте
 
 cd ../frontend
 npm install
@@ -244,7 +245,7 @@ NODE_ENV=production pm2 restart rucord
 Готовый скрипт на сервере (один раз создать):
 
 ```bash
-nano ~/rucord/deploy.sh
+nano ~/Rucord/deploy.sh
 ```
 
 Вставь:
@@ -252,7 +253,7 @@ nano ~/rucord/deploy.sh
 ```bash
 #!/usr/bin/env bash
 set -e
-cd ~/rucord
+cd ~/Rucord
 git pull --ff-only
 cd backend && npm install
 cd ../frontend && npm install && npm run build
@@ -263,13 +264,13 @@ echo "Done."
 Сохрани, затем:
 
 ```bash
-chmod +x ~/rucord/deploy.sh
+chmod +x ~/Rucord/deploy.sh
 ```
 
 Дальше после каждого `git push` достаточно зайти по SSH и выполнить:
 
 ```bash
-~/rucord/deploy.sh
+~/Rucord/deploy.sh
 ```
 
 ---
