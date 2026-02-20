@@ -4,14 +4,38 @@
 
 import React, { useState } from 'react';
 
+function fallbackCopyText(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.setAttribute('readonly', '');
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
 export default function InviteModal({ inviteCode, onClose }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(inviteCode).then(() => {
+    const onSuccess = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    };
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(inviteCode).then(onSuccess).catch(() => {
+        fallbackCopyText(inviteCode);
+        onSuccess();
+      });
+    } else {
+      fallbackCopyText(inviteCode);
+      onSuccess();
+    }
   };
 
   return (

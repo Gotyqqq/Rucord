@@ -328,9 +328,11 @@ export default function Chat({
   const [folderPickerFolders, setFolderPickerFolders] = useState([]);
   const emojiPickerRef = useRef(null);
   const emojiToolbarBtnRef = useRef(null);
-  const scrollPositionsRef = useRef({}); // channelId -> scrollTop
+  const scrollPositionsRef = useRef({}); // channelId -> scrollTop (обновляется при скролле)
+  const messageCountByChannelRef = useRef({}); // channelId -> кол-во сообщений при последнем просмотре (для «новых за время отсутствия»)
   const prevChannelIdRef = useRef(null);
   const isAtBottomRef = useRef(true);
+  const restoredScrollForChannelRef = useRef(null); // channelId, для которого только что восстановили скролл — не скроллить вниз при следующем обновлении messages
   const [unreadBelowCount, setUnreadBelowCount] = useState(0);
   const messagesLengthRef = useRef(0);
 
@@ -358,13 +360,8 @@ export default function Chat({
     });
   })();
 
-  // Сохраняем позицию прокрутки при уходе с канала
+  // При смене канала только обновляем prev; позиция скролла сохраняется в обработчике scroll (ниже)
   useEffect(() => {
-    const prev = prevChannelIdRef.current;
-    const el = messagesContainerRef.current;
-    if (prev != null && prev !== channel?.id && el) {
-      scrollPositionsRef.current[prev] = el.scrollTop;
-    }
     prevChannelIdRef.current = channel?.id ?? null;
     if (channel?.id != null) {
       messagesLengthRef.current = 0;
@@ -372,12 +369,14 @@ export default function Chat({
     }
   }, [channel?.id]);
 
-  // Обновляем «у низа ли пользователь» при прокрутке
+  // Сохраняем позицию прокрутки при скролле (до смены канала DOM уже другой — сохранять при уходе нельзя)
   useEffect(() => {
     const el = messagesContainerRef.current;
-    if (!el) return;
+    const cid = channel?.id;
+    if (!el || cid == null) return;
     const onScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = el;
+      scrollPositionsRef.current[cid] = scrollTop;
       isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 120;
       if (isAtBottomRef.current) setUnreadBelowCount(0);
     };
@@ -394,14 +393,25 @@ export default function Chat({
     messagesLengthRef.current = messages.length;
 
     if (saved != null) {
+      const leftCount = messageCountByChannelRef.current[channel.id] ?? 0;
+      const newWhileAway = Math.max(0, messages.length - leftCount);
+      setUnreadBelowCount(newWhileAway);
+      messageCountByChannelRef.current[channel.id] = messages.length;
+      restoredScrollForChannelRef.current = channel.id;
       delete scrollPositionsRef.current[channel.id];
       requestAnimationFrame(() => { el.scrollTop = saved; });
       return;
     }
+    messageCountByChannelRef.current[channel.id] = messages.length;
 
     const scrollToEnd = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     const atBottom = isAtBottomRef.current;
-    // Новые сообщения пришли по сокету (уже были сообщения), а пользователь не у низа — не скроллить, показать баннер
+    // Только что восстановили скролл для этого канала — не скроллить вниз при следующем обновлении messages
+    if (restoredScrollForChannelRef.current === channel.id) {
+      restoredScrollForChannelRef.current = null;
+      return;
+    }
+    // Новые сообщения пришли по сокету (уже были сообщения), а пользователь не у низа — добавляем к счётчику (плашка только если >= 10)
     if (prevLen > 0 && newMessagesCount > 0 && !atBottom) {
       setUnreadBelowCount(c => c + newMessagesCount);
       return;
@@ -601,6 +611,21 @@ export default function Chat({
     e.stopPropagation();
     const files = e.dataTransfer.files;
     if (files?.length) uploadFiles(files);
+  }, [uploadFiles]);
+
+  const handlePaste = useCallback((e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        const file = blob instanceof File ? blob : new File([blob], 'image.png', { type: blob.type || 'image/png' });
+        uploadFiles([file]);
+        return;
+      }
+    }
   }, [uploadFiles]);
 
   const removePendingAttachment = (index) => {
@@ -1025,17 +1050,6 @@ export default function Chat({
       )}
 
       <div className="chat-messages" ref={messagesContainerRef}>
-        {unreadBelowCount > 0 && (
-          <div className="chat-new-messages-banner">
-            <span className="chat-new-messages-text">
-              {unreadBelowCount === 1 ? '1 новое сообщение' : `${unreadBelowCount} новых сообщений`}
-            </span>
-            <button type="button" className="chat-new-messages-btn" onClick={() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); setUnreadBelowCount(0); }}>
-              Пометить как прочитанное
-              <span className="chat-new-messages-btn-icon">✓</span>
-            </button>
-          </div>
-        )}
         {messages.length === 0 ? (
           <div className="chat-welcome">
             <div className="chat-welcome-icon">#</div>
@@ -1195,6 +1209,14 @@ export default function Chat({
             );
           })
         )}
+        {unreadBelowCount >= 10 && (
+          <div className="chat-new-messages-banner">
+            <span className="chat-new-messages-text">Вы просматриваете старые сообщения</span>
+            <button type="button" className="chat-new-messages-btn" onClick={() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); setUnreadBelowCount(0); }}>
+              Перейти к последним сообщениям
+            </button>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -1309,6 +1331,7 @@ export default function Chat({
               value={messageText}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               placeholder={channel ? `Написать в #${channel.name} (@ для упоминания)` : 'Сообщение'}
               className="chat-input"
               autoFocus

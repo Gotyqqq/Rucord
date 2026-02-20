@@ -19,7 +19,7 @@ export default function LandingPage({ onOpenApp, onRegister }) {
       <main className="landing-main">
         <section className="landing-hero">
           <Logo size={96} showText className="landing-hero-logo" />
-          <h1 className="landing-hero-title">Общайтесь в своих серверах</h1>
+          <h1 className="landing-hero-title">Общайтесь на своих серверах</h1>
           <p className="landing-hero-subtitle">
             Создавайте серверы, приглашайте друзей по ссылке, общайтесь в каналах — текстовый чат, роли и всё необходимое в одном месте.
           </p>

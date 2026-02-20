@@ -239,6 +239,7 @@ input, select {
   padding: 12px 0;
   gap: 8px;
   overflow-y: auto;
+  font-family: 'Nunito', sans-serif;
 }
 
 .server-list::-webkit-scrollbar {
@@ -258,11 +259,23 @@ input, select {
   cursor: pointer;
   transition: border-radius 0.2s, background-color 0.2s;
   flex-shrink: 0;
+  text-align: center;
+  line-height: 1;
 }
 
 .server-icon:hover,
 .server-icon.active {
   border-radius: 16px;
+}
+
+.server-icon-char {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+  text-align: center;
 }
 
 .home-icon {
@@ -312,17 +325,121 @@ input, select {
 .server-list-bottom {
   margin-top: auto;
   padding-top: 8px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
-.logout-icon {
+.logout-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 48px;
+  min-height: 52px;
+  padding: 6px 0;
   background: #36393f;
   color: #ed4245;
-  font-size: 22px;
+  border: none;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  line-height: 1.2;
+  text-align: center;
+  font-family: 'Nunito', sans-serif;
 }
 
-.logout-icon:hover {
+.logout-btn:hover {
   background: #ed4245;
   color: white;
+}
+
+.logout-btn-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.logout-btn-text {
+  flex-shrink: 0;
+}
+
+.logout-btn-username {
+  display: none;
+}
+
+/* Окно подтверждения выхода */
+.logout-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+}
+
+.logout-confirm-modal {
+  background: #36393f;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  border: 1px solid #202225;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+.logout-confirm-title {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.logout-confirm-text {
+  margin: 0 0 20px 0;
+  font-size: 14px;
+  color: #b9bbbe;
+  line-height: 1.4;
+}
+
+.logout-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.logout-confirm-btn {
+  padding: 10px 20px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  border: none;
+}
+
+.logout-confirm-cancel {
+  background: transparent;
+  color: #b9bbbe;
+  border: 1px solid #4f545c;
+}
+
+.logout-confirm-cancel:hover {
+  background: #4f545c;
+  color: #fff;
+}
+
+.logout-confirm-submit {
+  background: #ed4245;
+  color: #fff;
+}
+
+.logout-confirm-submit:hover {
+  background: #c03537;
 }
 
 /* ============================================================
@@ -2869,10 +2986,10 @@ input, select {
   transform: none;
 }
 
-/* Баннер «новые сообщения» в чате */
+/* Баннер «новые сообщения» в чате (плашка снизу) */
 .chat-new-messages-banner {
   position: sticky;
-  top: 0;
+  bottom: 0;
   z-index: 5;
   display: flex;
   align-items: center;
