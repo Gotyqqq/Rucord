@@ -579,20 +579,38 @@ export default function App() {
           <button type="button" className="master-join-btn" onClick={handleJoinMaster}>Вступить</button>
         </div>
       )}
-      <Chat
-        channel={currentChannel} messages={messages}
-        onSendMessage={handleSendMessage} onEditMessage={handleEditMessage} onDeleteMessage={handleDeleteMessage}
-        typingUsers={typingUsers} currentUserId={user.id}
-        currentUsername={user.username} members={members} isOwner={isOwnerFlag}
-        slowmodeWait={slowmodeWait}
-        onOpenProfile={handleOpenProfile}
-        onlineStatuses={onlineStatuses}
-        onContextMenu={handleContextMenu}
-        token={token}
-        readOnly={masterPreviewMode}
-        onCreateServer={() => setShowCreateServer(true)}
-        onJoinServer={() => setShowJoinServer(true)}
-      />
+      {currentVoiceChannelId ? (
+        (() => {
+          const voiceChannel = channels.find(c => c.id === currentVoiceChannelId);
+          if (!voiceChannel) return null;
+          return (
+            <VoicePanel
+              channel={voiceChannel}
+              participants={voiceParticipants}
+              currentUserId={user?.id}
+              currentUsername={user?.username}
+              members={members}
+              socket={getSocket()}
+              onLeave={handleLeaveVoiceChannel}
+            />
+          );
+        })()
+      ) : (
+        <Chat
+          channel={currentChannel} messages={messages}
+          onSendMessage={handleSendMessage} onEditMessage={handleEditMessage} onDeleteMessage={handleDeleteMessage}
+          typingUsers={typingUsers} currentUserId={user.id}
+          currentUsername={user.username} members={members} isOwner={isOwnerFlag}
+          slowmodeWait={slowmodeWait}
+          onOpenProfile={handleOpenProfile}
+          onlineStatuses={onlineStatuses}
+          onContextMenu={handleContextMenu}
+          token={token}
+          readOnly={masterPreviewMode}
+          onCreateServer={() => setShowCreateServer(true)}
+          onJoinServer={() => setShowJoinServer(true)}
+        />
+      )}
       {currentServer && (
         <MemberList
           members={members} server={currentServer}
@@ -604,20 +622,6 @@ export default function App() {
       {currentServer && (
         <button className="invite-btn" onClick={handleShowInvite} title="Пригласить">Пригласить</button>
       )}
-
-      {currentVoiceChannelId && currentServer && (() => {
-        const voiceChannel = channels.find(c => c.id === currentVoiceChannelId);
-        if (!voiceChannel) return null;
-        return (
-          <VoicePanel
-            channel={voiceChannel}
-            participants={voiceParticipants}
-            currentUserId={user?.id}
-            socket={getSocket()}
-            onLeave={handleLeaveVoiceChannel}
-          />
-        );
-      })()}
 
       {notifications.length > 0 && (
         <div className="notification-container">

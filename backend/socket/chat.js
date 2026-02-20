@@ -415,6 +415,16 @@ function setupSocket(io) {
       });
     });
 
+    socket.on('voice_speaking', ({ channelId, speaking }) => {
+      const channel = db.prepare('SELECT id FROM channels WHERE id = ? AND type = ?').get(channelId, 'voice');
+      if (!channel) return;
+      socket.to(`voice_${channelId}`).emit('voice_speaking', {
+        userId: socket.user.id,
+        username: socket.user.username,
+        speaking: !!speaking
+      });
+    });
+
     socket.on('disconnect', () => {
       for (const room of socket.rooms) {
         if (room.startsWith('voice_')) {
