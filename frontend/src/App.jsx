@@ -79,6 +79,8 @@ export default function App() {
   const [masterPreviewMode, setMasterPreviewMode] = useState(false);
   const [currentVoiceChannelId, setCurrentVoiceChannelId] = useState(null);
   const [voiceParticipants, setVoiceParticipants] = useState([]);
+  const [voiceRosters, setVoiceRosters] = useState({});
+  const [voiceSpeakingUsers, setVoiceSpeakingUsers] = useState({});
 
   const selectedChannelIdRef = useRef(null);
   const selectedServerIdRef = useRef(null);
@@ -251,6 +253,12 @@ export default function App() {
       if (channelId !== currentVoiceChannelIdRef.current) return;
       setVoiceParticipants(prev => prev.filter(p => p.userId !== userId));
     });
+    socket.on('voice_roster_update', ({ channelId, participants }) => {
+      setVoiceRosters(prev => ({ ...prev, [channelId]: participants || [] }));
+    });
+    socket.on('voice_speaking', ({ userId, speaking }) => {
+      setVoiceSpeakingUsers(prev => ({ ...prev, [userId]: speaking }));
+    });
 
     socket.on('slowmode_wait', ({ channelId, remaining }) => {
       if (channelId === selectedChannelIdRef.current) {
@@ -299,16 +307,21 @@ export default function App() {
         socket.emit('get_online_users', selectedServerId, (statuses) => {
           setOnlineStatuses(prev => ({ ...prev, ...statuses }));
         });
+        socket.emit('get_voice_rosters', selectedServerId, (rosters) => {
+          setVoiceRosters(rosters || {});
+        });
       }
     } else {
       setChannels([]); setSelectedChannelId(null); setMessages([]); setMembers([]);
       setRoles([]); setMyPermissions({}); setMyHighestPos(0);
       setMasterPreviewMode(false);
+      setVoiceRosters({});
     }
     const s = getSocket();
     if (currentVoiceChannelIdRef.current && s) s.emit('leave_voice_channel', currentVoiceChannelIdRef.current);
     setCurrentVoiceChannelId(null);
     setVoiceParticipants([]);
+    setVoiceSpeakingUsers({});
   }, [selectedServerId, masterPreviewMode]);
 
   useEffect(() => {
@@ -403,11 +416,17 @@ export default function App() {
     } catch (err) { alert(err.message); }
   };
 
-  const handleJoinVoiceChannel = (channel) => {
+  const handleJoinVoiceChannel = async (channel) => {
     const socket = getSocket();
     if (!socket) return;
     if (currentVoiceChannelId === channel.id) {
       handleLeaveVoiceChannel();
+      return;
+    }
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch (err) {
+      alert('Нужен доступ к микрофону для голосового канала. Разрешите доступ в настройках браузера.');
       return;
     }
     if (currentVoiceChannelId) {
@@ -424,6 +443,7 @@ export default function App() {
     if (socket) socket.emit('leave_voice_channel', currentVoiceChannelId);
     setCurrentVoiceChannelId(null);
     setVoiceParticipants([]);
+    setVoiceSpeakingUsers({});
   };
 
   const handleSelectServerFromSidebar = (serverId) => {
@@ -561,6 +581,8 @@ export default function App() {
         onDeleteChannel={handleDeleteChannel}
         onJoinVoiceChannel={handleJoinVoiceChannel}
         currentVoiceChannelId={currentVoiceChannelId}
+        voiceRosters={voiceRosters}
+        voiceSpeakingUsers={voiceSpeakingUsers}
         onOpenSettings={() => setShowSettings(true)}
         onLeaveServer={handleLeaveServer}
         onShowInvite={handleShowInvite}
@@ -579,38 +601,35 @@ export default function App() {
           <button type="button" className="master-join-btn" onClick={handleJoinMaster}>Вступить</button>
         </div>
       )}
-      {currentVoiceChannelId ? (
-        (() => {
-          const voiceChannel = channels.find(c => c.id === currentVoiceChannelId);
-          if (!voiceChannel) return null;
-          return (
-            <VoicePanel
-              channel={voiceChannel}
-              participants={voiceParticipants}
-              currentUserId={user?.id}
-              currentUsername={user?.username}
-              members={members}
-              socket={getSocket()}
-              onLeave={handleLeaveVoiceChannel}
-            />
-          );
-        })()
-      ) : (
-        <Chat
-          channel={currentChannel} messages={messages}
-          onSendMessage={handleSendMessage} onEditMessage={handleEditMessage} onDeleteMessage={handleDeleteMessage}
-          typingUsers={typingUsers} currentUserId={user.id}
-          currentUsername={user.username} members={members} isOwner={isOwnerFlag}
-          slowmodeWait={slowmodeWait}
-          onOpenProfile={handleOpenProfile}
-          onlineStatuses={onlineStatuses}
-          onContextMenu={handleContextMenu}
-          token={token}
-          readOnly={masterPreviewMode}
-          onCreateServer={() => setShowCreateServer(true)}
-          onJoinServer={() => setShowJoinServer(true)}
-        />
-      )}
+      <Chat
+        channel={currentChannel} messages={messages}
+        onSendMessage={handleSendMessage} onEditMessage={handleEditMessage} onDeleteMessage={handleDeleteMessage}
+        typingUsers={typingUsers} currentUserId={user.id}
+        currentUsername={user.username} members={members} isOwner={isOwnerFlag}
+        slowmodeWait={slowmodeWait}
+        onOpenProfile={handleOpenProfile}
+        onlineStatuses={onlineStatuses}
+        onContextMenu={handleContextMenu}
+        token={token}
+        readOnly={masterPreviewMode}
+        onCreateServer={() => setShowCreateServer(true)}
+        onJoinServer={() => setShowJoinServer(true)}
+      />
+      {currentVoiceChannelId && (() => {
+        const voiceChannel = channels.find(c => c.id === currentVoiceChannelId);
+        if (!voiceChannel) return null;
+        return (
+          <VoicePanel
+            channel={voiceChannel}
+            participants={voiceParticipants}
+            currentUserId={user?.id}
+            currentUsername={user?.username}
+            members={members}
+            socket={getSocket()}
+            onLeave={handleLeaveVoiceChannel}
+          />
+        );
+      })()}
       {currentServer && (
         <MemberList
           members={members} server={currentServer}

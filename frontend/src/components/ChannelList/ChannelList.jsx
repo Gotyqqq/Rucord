@@ -12,9 +12,18 @@ export default function ChannelList({
   onOpenChannelSettings,
   onJoinVoiceChannel,
   currentVoiceChannelId,
+  voiceRosters = {},
+  voiceSpeakingUsers = {},
   isMaster, allServers = [], onSelectServerPreview,
   currentUsername
 }) {
+  const getInitial = (name) => name ? name.charAt(0).toUpperCase() : '?';
+  const getAvatarColor = (name) => {
+    const colors = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55c', '#faa61a', '#e67e22'];
+    let hash = 0;
+    for (let i = 0; i < (name || '').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length];
+  };
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [showCreateVoiceForm, setShowCreateVoiceForm] = useState(false);
@@ -168,19 +177,42 @@ export default function ChannelList({
           </div>
         </form>
       )}
-      {channels.filter(c => c.type === 'voice').map(channel => (
-        <div
-          key={channel.id}
-          className={`channel-item voice-channel ${currentVoiceChannelId === channel.id ? 'active' : ''}`}
-          onClick={() => onJoinVoiceChannel && onJoinVoiceChannel(channel)}
-        >
-          <span className="channel-hash">🔊</span>
-          <span className="channel-name">{channel.name}</span>
-          {canManageChannels && (
-            <button className="channel-delete-btn" onClick={(e) => { e.stopPropagation(); onDeleteChannel(channel.id); }} title="Удалить канал">×</button>
-          )}
-        </div>
-      ))}
+      {channels.filter(c => c.type === 'voice').map(channel => {
+        const roster = voiceRosters[channel.id] || [];
+        const isActive = currentVoiceChannelId === channel.id;
+        return (
+          <div key={channel.id} className="voice-channel-block">
+            <div
+              className={`channel-item voice-channel ${isActive ? 'active' : ''}`}
+              onClick={() => onJoinVoiceChannel && onJoinVoiceChannel(channel)}
+            >
+              <span className="channel-hash">🔊</span>
+              <span className="channel-name">{channel.name}</span>
+              {canManageChannels && (
+                <button className="channel-delete-btn" onClick={(e) => { e.stopPropagation(); onDeleteChannel(channel.id); }} title="Удалить канал">×</button>
+              )}
+            </div>
+            {roster.length > 0 && (
+              <div className="voice-channel-users">
+                {roster.map(p => (
+                  <div
+                    key={p.userId}
+                    className={`voice-channel-user ${voiceSpeakingUsers[p.userId] ? 'voice-channel-user-speaking' : ''}`}
+                  >
+                    <div
+                      className="voice-channel-user-avatar"
+                      style={{ backgroundColor: getAvatarColor(p.username) }}
+                    >
+                      {getInitial(p.username)}
+                    </div>
+                    <span className="voice-channel-user-name">{p.username}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

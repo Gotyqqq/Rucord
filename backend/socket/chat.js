@@ -374,6 +374,19 @@ function setupSocket(io) {
       socket.to(`channel_${channelId}`).emit('user_typing', { channelId, username: socket.user.username, userId: socket.user.id });
     });
 
+    function broadcastVoiceRoster(channelId, serverId) {
+      const room = ioInstance.sockets.adapter.rooms.get(`voice_${channelId}`);
+      const participants = [];
+      if (room) {
+        for (const sid of room) {
+          const s = ioInstance.sockets.sockets.get(sid);
+          if (s && s.user)
+            participants.push({ userId: s.user.id, username: s.user.username });
+        }
+      }
+      ioInstance.to(`server_${serverId}`).emit('voice_roster_update', { channelId, participants });
+    }
+
     // ---- Голосовые каналы ----
     socket.on('join_voice_channel', (channelId) => {
       const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(channelId);
@@ -398,11 +411,14 @@ function setupSocket(io) {
       }
       socket.emit('voice_participants', { channelId, participants });
       socket.to(roomName).emit('voice_participant_joined', { channelId, userId: socket.user.id, username: socket.user.username });
+      broadcastVoiceRoster(channelId, channel.server_id);
     });
 
     socket.on('leave_voice_channel', (channelId) => {
+      const channel = db.prepare('SELECT server_id FROM channels WHERE id = ?').get(channelId);
       socket.leave(`voice_${channelId}`);
       socket.to(`voice_${channelId}`).emit('voice_participant_left', { channelId, userId: socket.user.id });
+      if (channel) broadcastVoiceRoster(channelId, channel.server_id);
     });
 
     socket.on('voice_signal', (data) => {
@@ -413,6 +429,23 @@ function setupSocket(io) {
         fromUsername: socket.user.username,
         signal
       });
+    });
+
+    socket.on('get_voice_rosters', (serverId, callback) => {
+      if (typeof callback !== 'function') return;
+      const channels = db.prepare('SELECT id FROM channels WHERE server_id = ? AND type = ?').all(serverId, 'voice');
+      const rosters = {};
+      for (const ch of channels) {
+        const room = ioInstance.sockets.adapter.rooms.get(`voice_${ch.id}`);
+        rosters[ch.id] = [];
+        if (room) {
+          for (const sid of room) {
+            const s = ioInstance.sockets.sockets.get(sid);
+            if (s && s.user) rosters[ch.id].push({ userId: s.user.id, username: s.user.username });
+          }
+        }
+      }
+      callback(rosters);
     });
 
     socket.on('voice_speaking', ({ channelId, speaking }) => {
@@ -429,7 +462,9 @@ function setupSocket(io) {
       for (const room of socket.rooms) {
         if (room.startsWith('voice_')) {
           const channelId = room.replace('voice_', '');
+          const ch = db.prepare('SELECT server_id FROM channels WHERE id = ?').get(channelId);
           ioInstance.to(room).emit('voice_participant_left', { channelId, userId: socket.user.id });
+          if (ch) broadcastVoiceRoster(channelId, ch.server_id);
         }
       }
       console.log(`✗ Отключился: ${socket.user.username}`);

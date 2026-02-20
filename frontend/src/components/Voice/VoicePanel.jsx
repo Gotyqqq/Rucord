@@ -5,16 +5,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 
-function getInitial(name) {
-  return name ? name.charAt(0).toUpperCase() : '?';
-}
-function getAvatarColor(name) {
-  const colors = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55c', '#faa61a', '#e67e22'];
-  let hash = 0;
-  for (let i = 0; i < (name || '').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return colors[Math.abs(hash) % colors.length];
-}
-
 function formatDuration(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -26,8 +16,6 @@ export default function VoicePanel({
   channel,
   participants,
   currentUserId,
-  currentUsername,
-  members = [],
   socket,
   onLeave
 }) {
@@ -241,65 +229,14 @@ export default function VoicePanel({
     setMuted(!muted);
   };
 
-  const getRoleForUser = (userId) => {
-    const member = members.find(m => m.user_id === userId);
-    if (!member?.roles?.length) return null;
-    const role = member.roles.filter(r => r.name !== 'Владелец')[0];
-    return role?.name || null;
-  };
-
-  const allParticipants = [
-    { userId: currentUserId, username: currentUsername || 'Вы' },
-    ...participants.filter(p => p.userId !== currentUserId)
-  ];
-
   return (
-    <div className="voice-view">
-      <div className="voice-view-main">
-        <header className="voice-view-header">
-          <div className="voice-view-channel-row">
-            <span className="voice-view-channel-name">🔊 {channel.name}</span>
-            <span className="voice-view-timer">{formatDuration(duration)}</span>
-          </div>
-        </header>
-
-        {micError && (
-          <div className="voice-view-mic-error">
-            {micError}. Разрешите доступ к микрофону в настройках браузера и обновите страницу.
-          </div>
-        )}
-
-        <div className="voice-participants-list">
-          {allParticipants.map(p => {
-            const role = getRoleForUser(p.userId);
-            const isSpeaking = speakingUsers[p.userId];
-            return (
-              <div
-                key={p.userId}
-                className={`voice-participant-card ${isSpeaking ? 'voice-participant-speaking' : ''}`}
-              >
-                <div className="voice-participant-avatar-wrap">
-                  <div
-                    className="voice-participant-avatar"
-                    style={{ backgroundColor: getAvatarColor(p.username) }}
-                  >
-                    {getInitial(p.username)}
-                  </div>
-                </div>
-                <div className="voice-participant-info">
-                  <span className="voice-participant-name">{role || p.username}</span>
-                  {p.userId === currentUserId && <span className="voice-participant-you">(вы)</span>}
-                </div>
-              </div>
-            );
-          })}
-          {connecting && participants.length > 0 && (
-            <div className="voice-connecting">Подключение...</div>
-          )}
-        </div>
+    <div className="voice-panel">
+      <div className="voice-panel-info">
+        <span className="voice-panel-channel">🔊 {channel.name}</span>
+        <span className="voice-panel-timer">{formatDuration(duration)}</span>
       </div>
-
-      <div className="voice-view-bar">
+      {micError && <span className="voice-panel-mic-error" title={micError}>⚠</span>}
+      <div className="voice-panel-actions">
         <button
           type="button"
           className={`voice-btn ${muted ? 'voice-btn-muted' : ''}`}
@@ -312,7 +249,6 @@ export default function VoicePanel({
           Покинуть
         </button>
       </div>
-
       {Object.entries(remoteStreams).map(([userId, stream]) => (
         <audio key={userId} ref={el => { if (el) el.srcObject = stream; }} autoPlay playsInline />
       ))}
