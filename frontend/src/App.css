@@ -1819,6 +1819,127 @@ input, select {
 }
 
 /* ============================================================
+   ГОЛОСОВОЙ КАНАЛ (панель внизу)
+   ============================================================ */
+
+.voice-panel {
+  position: fixed;
+  bottom: 0;
+  left: 72px;
+  right: 240px;
+  background: #2f3136;
+  border-top: 1px solid #202225;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 50;
+}
+
+.voice-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.voice-panel-icon {
+  font-size: 20px;
+}
+
+.voice-panel-channel {
+  font-weight: 600;
+  color: #fff;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-panel-participants {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.voice-participant {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #36393f;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #dcddde;
+}
+
+.voice-participant-you {
+  color: #72767d;
+  font-size: 12px;
+}
+
+.voice-participant-live {
+  color: #3ba55c;
+  font-size: 10px;
+}
+
+.voice-connecting {
+  font-size: 12px;
+  color: #72767d;
+}
+
+.voice-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-btn {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 4px;
+  background: #4f545c;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.voice-btn:hover {
+  background: #5d6269;
+}
+
+.voice-btn-muted {
+  background: #ed4245;
+}
+
+.voice-btn-muted:hover {
+  background: #c03537;
+}
+
+.voice-btn-leave {
+  background: #ed4245;
+}
+
+.voice-btn-leave:hover {
+  background: #c03537;
+}
+
+.voice-panel audio {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .voice-panel {
+    right: 0;
+  }
+}
+
+/* ============================================================
    МОДАЛЬНЫЕ ОКНА
    ============================================================ */
 

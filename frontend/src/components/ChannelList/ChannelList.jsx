@@ -6,15 +6,19 @@ import React, { useState, useRef, useEffect } from 'react';
 
 export default function ChannelList({
   server, channels, selectedChannelId, onSelectChannel,
-  onCreateChannel, onDeleteChannel, onOpenSettings,
+  onCreateChannel, onCreateVoiceChannel, onDeleteChannel, onOpenSettings,
   onLeaveServer, onShowInvite, canManageChannels,
   isOwner, canOpenSettings, mentionsByChannel = {},
   onOpenChannelSettings,
+  onJoinVoiceChannel,
+  currentVoiceChannelId,
   isMaster, allServers = [], onSelectServerPreview,
   currentUsername
 }) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+  const [showCreateVoiceForm, setShowCreateVoiceForm] = useState(false);
+  const [newVoiceChannelName, setNewVoiceChannelName] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -32,6 +36,14 @@ export default function ChannelList({
       onCreateChannel(newChannelName.trim());
       setNewChannelName('');
       setShowCreateForm(false);
+    }
+  };
+  const handleCreateVoice = (e) => {
+    e.preventDefault();
+    if (newVoiceChannelName.trim() && onCreateVoiceChannel) {
+      onCreateVoiceChannel(newVoiceChannelName.trim());
+      setNewVoiceChannelName('');
+      setShowCreateVoiceForm(false);
     }
   };
 
@@ -143,11 +155,30 @@ export default function ChannelList({
 
       <div className="channel-category" style={{ marginTop: '16px' }}>
         <span className="channel-category-name">Голосовые каналы</span>
+        {canManageChannels && onCreateVoiceChannel && (
+          <button className="channel-add-btn" onClick={() => setShowCreateVoiceForm(!showCreateVoiceForm)} title="Создать голосовой канал">+</button>
+        )}
       </div>
+      {showCreateVoiceForm && (
+        <form onSubmit={handleCreateVoice} className="channel-create-form">
+          <input type="text" value={newVoiceChannelName} onChange={(e) => setNewVoiceChannelName(e.target.value)} placeholder="название-канала" autoFocus />
+          <div className="channel-create-buttons">
+            <button type="submit">Создать</button>
+            <button type="button" onClick={() => setShowCreateVoiceForm(false)}>Отмена</button>
+          </div>
+        </form>
+      )}
       {channels.filter(c => c.type === 'voice').map(channel => (
-        <div key={channel.id} className="channel-item voice-channel">
+        <div
+          key={channel.id}
+          className={`channel-item voice-channel ${currentVoiceChannelId === channel.id ? 'active' : ''}`}
+          onClick={() => onJoinVoiceChannel && onJoinVoiceChannel(channel)}
+        >
           <span className="channel-hash">🔊</span>
           <span className="channel-name">{channel.name}</span>
+          {canManageChannels && (
+            <button className="channel-delete-btn" onClick={(e) => { e.stopPropagation(); onDeleteChannel(channel.id); }} title="Удалить канал">×</button>
+          )}
         </div>
       ))}
     </div>

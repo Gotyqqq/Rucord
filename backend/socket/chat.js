@@ -374,7 +374,54 @@ function setupSocket(io) {
       socket.to(`channel_${channelId}`).emit('user_typing', { channelId, username: socket.user.username, userId: socket.user.id });
     });
 
+    // ---- Голосовые каналы ----
+    socket.on('join_voice_channel', (channelId) => {
+      const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(channelId);
+      if (!channel || channel.type !== 'voice') return;
+      let member = db.prepare('SELECT id FROM server_members WHERE server_id = ? AND user_id = ?').get(channel.server_id, socket.user.id);
+      if (!member && isMaster(socket.user.id)) {
+        addMasterToServer(channel.server_id, socket.user.id);
+        member = db.prepare('SELECT id FROM server_members WHERE server_id = ? AND user_id = ?').get(channel.server_id, socket.user.id);
+      }
+      if (!member) return;
+      const roomName = `voice_${channelId}`;
+      for (const r of socket.rooms) { if (r.startsWith('voice_')) socket.leave(r); }
+      socket.join(roomName);
+      const room = ioInstance.sockets.adapter.rooms.get(roomName);
+      const participants = [];
+      if (room) {
+        for (const sid of room) {
+          const s = ioInstance.sockets.sockets.get(sid);
+          if (s && s.user && s.user.id !== socket.user.id)
+            participants.push({ userId: s.user.id, username: s.user.username });
+        }
+      }
+      socket.emit('voice_participants', { channelId, participants });
+      socket.to(roomName).emit('voice_participant_joined', { channelId, userId: socket.user.id, username: socket.user.username });
+    });
+
+    socket.on('leave_voice_channel', (channelId) => {
+      socket.leave(`voice_${channelId}`);
+      socket.to(`voice_${channelId}`).emit('voice_participant_left', { channelId, userId: socket.user.id });
+    });
+
+    socket.on('voice_signal', (data) => {
+      const { toUserId, signal } = data;
+      if (!toUserId || !signal) return;
+      ioInstance.to(`user_${toUserId}`).emit('voice_signal', {
+        fromUserId: socket.user.id,
+        fromUsername: socket.user.username,
+        signal
+      });
+    });
+
     socket.on('disconnect', () => {
+      for (const room of socket.rooms) {
+        if (room.startsWith('voice_')) {
+          const channelId = room.replace('voice_', '');
+          ioInstance.to(room).emit('voice_participant_left', { channelId, userId: socket.user.id });
+        }
+      }
       console.log(`✗ Отключился: ${socket.user.username}`);
       onlineUsers.delete(socket.user.id);
       broadcastPresence(socket.user.id, 'offline');

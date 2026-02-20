@@ -23,6 +23,7 @@ import ChannelSettingsModal from './components/Settings/ChannelSettingsModal';
 import UserProfilePopup from './components/UserProfile/UserProfilePopup';
 import DMPanel from './components/DM/DMPanel';
 import UserContextMenu from './components/ContextMenu/UserContextMenu';
+import VoicePanel from './components/Voice/VoicePanel';
 
 function loadFromStorage(key) {
   try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : {}; }
@@ -76,11 +77,15 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [masterPreviewMode, setMasterPreviewMode] = useState(false);
+  const [currentVoiceChannelId, setCurrentVoiceChannelId] = useState(null);
+  const [voiceParticipants, setVoiceParticipants] = useState([]);
 
   const selectedChannelIdRef = useRef(null);
   const selectedServerIdRef = useRef(null);
+  const currentVoiceChannelIdRef = useRef(null);
 
   useEffect(() => { selectedChannelIdRef.current = selectedChannelId; }, [selectedChannelId]);
+  useEffect(() => { currentVoiceChannelIdRef.current = currentVoiceChannelId; }, [currentVoiceChannelId]);
   useEffect(() => { selectedServerIdRef.current = selectedServerId; }, [selectedServerId]);
   useEffect(() => { saveToStorage('rucord_mentions', mentionData); }, [mentionData]);
 
@@ -232,6 +237,21 @@ export default function App() {
       setOnlineStatuses(prev => ({ ...prev, [userId]: status }));
     });
 
+    socket.on('voice_participants', ({ channelId, participants }) => {
+      if (channelId === currentVoiceChannelIdRef.current) setVoiceParticipants(participants || []);
+    });
+    socket.on('voice_participant_joined', ({ channelId, userId, username }) => {
+      if (channelId !== currentVoiceChannelIdRef.current) return;
+      setVoiceParticipants(prev => {
+        if (prev.some(p => p.userId === userId)) return prev;
+        return [...prev, { userId, username }];
+      });
+    });
+    socket.on('voice_participant_left', ({ channelId, userId }) => {
+      if (channelId !== currentVoiceChannelIdRef.current) return;
+      setVoiceParticipants(prev => prev.filter(p => p.userId !== userId));
+    });
+
     socket.on('slowmode_wait', ({ channelId, remaining }) => {
       if (channelId === selectedChannelIdRef.current) {
         setSlowmodeWait(remaining);
@@ -285,6 +305,10 @@ export default function App() {
       setRoles([]); setMyPermissions({}); setMyHighestPos(0);
       setMasterPreviewMode(false);
     }
+    const s = getSocket();
+    if (currentVoiceChannelIdRef.current && s) s.emit('leave_voice_channel', currentVoiceChannelIdRef.current);
+    setCurrentVoiceChannelId(null);
+    setVoiceParticipants([]);
   }, [selectedServerId, masterPreviewMode]);
 
   useEffect(() => {
@@ -355,6 +379,10 @@ export default function App() {
     await api.post(`/api/channels/server/${selectedServerId}`, { name, type: 'text' }, token);
     loadChannels(selectedServerId);
   };
+  const handleCreateVoiceChannel = async (name) => {
+    await api.post(`/api/channels/server/${selectedServerId}`, { name, type: 'voice' }, token);
+    loadChannels(selectedServerId);
+  };
   const handleDeleteChannel = async (channelId) => {
     if (!window.confirm('Удалить этот канал?')) return;
     await api.delete(`/api/channels/${channelId}`, token);
@@ -373,6 +401,29 @@ export default function App() {
       await api.post(`/api/servers/${selectedServerId}/leave`, {}, token);
       setSelectedServerId(null); setMasterPreviewMode(false); await loadServers();
     } catch (err) { alert(err.message); }
+  };
+
+  const handleJoinVoiceChannel = (channel) => {
+    const socket = getSocket();
+    if (!socket) return;
+    if (currentVoiceChannelId === channel.id) {
+      handleLeaveVoiceChannel();
+      return;
+    }
+    if (currentVoiceChannelId) {
+      socket.emit('leave_voice_channel', currentVoiceChannelId);
+    }
+    setCurrentVoiceChannelId(channel.id);
+    setVoiceParticipants([]);
+    socket.emit('join_voice_channel', channel.id);
+  };
+
+  const handleLeaveVoiceChannel = () => {
+    if (!currentVoiceChannelId) return;
+    const socket = getSocket();
+    if (socket) socket.emit('leave_voice_channel', currentVoiceChannelId);
+    setCurrentVoiceChannelId(null);
+    setVoiceParticipants([]);
   };
 
   const handleSelectServerFromSidebar = (serverId) => {
@@ -506,7 +557,10 @@ export default function App() {
         selectedChannelId={selectedChannelId}
         onSelectChannel={setSelectedChannelId}
         onCreateChannel={handleCreateChannel}
+        onCreateVoiceChannel={handleCreateVoiceChannel}
         onDeleteChannel={handleDeleteChannel}
+        onJoinVoiceChannel={handleJoinVoiceChannel}
+        currentVoiceChannelId={currentVoiceChannelId}
         onOpenSettings={() => setShowSettings(true)}
         onLeaveServer={handleLeaveServer}
         onShowInvite={handleShowInvite}
@@ -550,6 +604,20 @@ export default function App() {
       {currentServer && (
         <button className="invite-btn" onClick={handleShowInvite} title="Пригласить">Пригласить</button>
       )}
+
+      {currentVoiceChannelId && currentServer && (() => {
+        const voiceChannel = channels.find(c => c.id === currentVoiceChannelId);
+        if (!voiceChannel) return null;
+        return (
+          <VoicePanel
+            channel={voiceChannel}
+            participants={voiceParticipants}
+            currentUserId={user?.id}
+            socket={getSocket()}
+            onLeave={handleLeaveVoiceChannel}
+          />
+        );
+      })()}
 
       {notifications.length > 0 && (
         <div className="notification-container">
