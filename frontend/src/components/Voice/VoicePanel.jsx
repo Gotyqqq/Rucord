@@ -43,7 +43,16 @@ export default function VoicePanel({
 
     const getStream = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: { ideal: 48000 },
+            channelCount: { ideal: 1 }
+          },
+          video: false
+        });
         localStreamRef.current = stream;
         setHasLocalStream(true);
         setConnecting(false);
@@ -144,10 +153,28 @@ export default function VoicePanel({
       setRemoteStreams({});
     };
 
+    const trySetAudioBitrate = (connection, maxBitrate = 64000) => {
+      connection.getSenders().forEach(sender => {
+        if (sender.track && sender.track.kind === 'audio') {
+          sender.getParameters().then(params => {
+            if (params.encodings && params.encodings[0]) {
+              params.encodings[0].maxBitrate = maxBitrate;
+              return sender.setParameters(params);
+            }
+          }).catch(() => {});
+        }
+      });
+    };
+
     const getOrCreatePeer = (userId) => {
       if (peers[userId]) return peers[userId];
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ],
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require'
       });
       if (localStream) localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       pc.ontrack = (e) => {
@@ -190,6 +217,7 @@ export default function VoicePanel({
         const pc = getOrCreatePeer(p.userId);
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
+        trySetAudioBitrate(pc);
         socket.emit('voice_signal', { toUserId: p.userId, signal: pc.localDescription });
       }
       if (participants.filter(p => p.userId !== currentUserId).length === 0) setConnecting(false);
@@ -204,10 +232,29 @@ export default function VoicePanel({
   // Новый участник — создаём offer
   useEffect(() => {
     if (!channel || !socket || !hasLocalStream || !localStreamRef.current) return;
+    const setAudioBitrate = (connection, maxBitrate = 64000) => {
+      connection.getSenders().forEach(sender => {
+        if (sender.track && sender.track.kind === 'audio') {
+          sender.getParameters().then(params => {
+            if (params.encodings && params.encodings[0]) {
+              params.encodings[0].maxBitrate = maxBitrate;
+              return sender.setParameters(params);
+            }
+          }).catch(() => {});
+        }
+      });
+    };
     const participantsWithoutMe = participants.filter(p => p.userId !== currentUserId);
     participantsWithoutMe.forEach(p => {
       if (!peersRef.current[p.userId]) {
-        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ],
+          bundlePolicy: 'max-bundle',
+          rtcpMuxPolicy: 'require'
+        });
         localStreamRef.current.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current));
         pc.ontrack = (e) => {
           const stream = e.streams[0] || (e.track ? new MediaStream([e.track]) : null);
@@ -218,6 +265,7 @@ export default function VoicePanel({
         };
         peersRef.current[p.userId] = pc;
         pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+          setAudioBitrate(pc);
           socket.emit('voice_signal', { toUserId: p.userId, signal: pc.localDescription });
         });
       }
