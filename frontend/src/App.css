@@ -327,8 +327,9 @@ input, select {
   padding-top: 8px;
   width: 100%;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
+  gap: 6px;
 }
 
 .logout-btn {
@@ -355,6 +356,15 @@ input, select {
 
 .logout-btn:hover {
   background: #ed4245;
+  color: white;
+}
+
+.logout-btn.settings-btn {
+  color: #b9bbbe;
+}
+
+.logout-btn.settings-btn:hover {
+  background: #5865f2;
   color: white;
 }
 

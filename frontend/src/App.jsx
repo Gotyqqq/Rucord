@@ -573,6 +573,7 @@ export default function App() {
         mentionsByServer={mentionsByServer}
         onOpenDM={() => { setDmTargetUserId(null); setDmTargetUsername(''); setShowDM(true); }}
         dmUnread={dmUnreadTotal}
+        onOpenUserSettings={() => setShowUserSettings(true)}
       />
       <ChannelList
         server={currentServer} channels={channels}
