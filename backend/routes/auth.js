@@ -82,11 +82,13 @@ router.post('/login', (req, res) => {
     // Ищем пользователя по email (без учёта регистра)
     const user = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(email);
     if (!user) {
+      console.log('[auth] Вход: пользователь не найден, email=', email);
       return res.status(401).json({ error: 'Неверный email или пароль' });
     }
 
     // Проверяем пароль
     if (!bcrypt.compareSync(password, user.password_hash)) {
+      console.log('[auth] Вход: неверный пароль, email=', email);
       return res.status(401).json({ error: 'Неверный email или пароль' });
     }
 
