@@ -1,51 +1,20 @@
 // ============================================================
-// VoicePanel.jsx — Голосовой канал: вид как в Discord,
-// запрос микрофона при входе, индикатор речи (зелёная рамка)
+// VoicePanel.jsx — Голосовой канал: WebRTC P2P, audio pipeline
+// с реальным gain, VAD, device switching, reconnection
 // ============================================================
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  ICE_SERVERS, AUDIO_BITRATE, VOICE_KEYS,
+  loadNumber, loadString, loadBool, saveBool,
+  setAudioBitrate, getSpeakThreshold
+} from '../../utils/voiceConfig';
 
 function formatDuration(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
   return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
-}
-
-const SENSITIVITY_STORAGE_KEYS = {
-  auto: 'rucord_voice_sensitivity_auto',
-  threshold: 'rucord_voice_sensitivity_threshold'
-};
-
-const VOICE_PANEL_STORAGE_KEYS = {
-  muted: 'rucord_voice_panel_muted',
-  deafened: 'rucord_voice_panel_deafened'
-};
-
-function loadVoicePanelBool(key, def) {
-  try {
-    const v = localStorage.getItem(key);
-    return v === 'true' ? true : v === 'false' ? false : def;
-  } catch (e) {}
-  return def;
-}
-function saveVoicePanelBool(key, value) {
-  try {
-    localStorage.setItem(key, value ? 'true' : 'false');
-  } catch (e) {}
-}
-
-function getSpeakThreshold() {
-  try {
-    const auto = localStorage.getItem(SENSITIVITY_STORAGE_KEYS.auto);
-    if (auto === 'true') return 25;
-    const t = localStorage.getItem(SENSITIVITY_STORAGE_KEYS.threshold);
-    if (t != null) {
-      const n = parseInt(t, 10);
-      if (!Number.isNaN(n) && n >= 0 && n <= 100) return Math.max(1, Math.round((n / 100) * 80));
-    }
-  } catch (e) {}
-  return 25;
 }
 
 export default function VoicePanel({
@@ -61,35 +30,254 @@ export default function VoicePanel({
   micTestMode = false,
   onMicTestModeChange
 }) {
-  const [muted, setMuted] = useState(() => loadVoicePanelBool(VOICE_PANEL_STORAGE_KEYS.muted, false));
-  const [deafened, setDeafened] = useState(() => loadVoicePanelBool(VOICE_PANEL_STORAGE_KEYS.deafened, false));
+  const [muted, setMuted] = useState(() => loadBool(VOICE_KEYS.muted, false));
+  const [deafened, setDeafened] = useState(() => loadBool(VOICE_KEYS.deafened, false));
   const [connecting, setConnecting] = useState(true);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [speakingUsers, setSpeakingUsers] = useState({});
   const [micError, setMicError] = useState(null);
   const [duration, setDuration] = useState(0);
   const [hasLocalStream, setHasLocalStream] = useState(false);
-  const localStreamRef = useRef(null);
+  const [peerStates, setPeerStates] = useState({});
+
+  // ---- Refs ----
+  const rawStreamRef = useRef(null);
+  const processedStreamRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const sourceNodeRef = useRef(null);
+  const gainNodeRef = useRef(null);
+  const analyserRef = useRef(null);
+  const destinationRef = useRef(null);
   const peersRef = useRef({});
+  const pendingCandidatesRef = useRef({});
   const joinTimeRef = useRef(Date.now());
   const speakingIntervalRef = useRef(null);
-  const analyserRef = useRef(null);
-  const audioContextRef = useRef(null);
   const audioElsRef = useRef({});
   const savedMutedRef = useRef(false);
   const savedDeafenedRef = useRef(false);
+  const iceRestartCountRef = useRef({});
 
-  // Запрос микрофона сразу при входе в канал (первым делом)
+  // ---- Settings from localStorage, reactive via storage event ----
+  const [inputDeviceId, setInputDeviceId] = useState(() => loadString(VOICE_KEYS.inputDeviceId, ''));
+  const [inputGain, setInputGain] = useState(() => loadNumber(VOICE_KEYS.inputGain, 1));
+  const [outputDeviceId, setOutputDeviceId] = useState(() => loadString(VOICE_KEYS.outputDeviceId, ''));
+  const [outputGain, setOutputGain] = useState(() => loadNumber(VOICE_KEYS.outputGain, 1));
+
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === VOICE_KEYS.inputDeviceId) setInputDeviceId(loadString(VOICE_KEYS.inputDeviceId, ''));
+      if (e.key === VOICE_KEYS.inputGain) setInputGain(loadNumber(VOICE_KEYS.inputGain, 1));
+      if (e.key === VOICE_KEYS.outputDeviceId) setOutputDeviceId(loadString(VOICE_KEYS.outputDeviceId, ''));
+      if (e.key === VOICE_KEYS.outputGain) setOutputGain(loadNumber(VOICE_KEYS.outputGain, 1));
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // ---- Apply inputGain to the live GainNode ----
+  useEffect(() => {
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = inputGain;
+  }, [inputGain]);
+
+  // ---- Apply outputGain + outputDeviceId to all remote audio elements ----
+  useEffect(() => {
+    Object.values(audioElsRef.current).forEach(el => {
+      if (el) el.volume = Math.max(0, Math.min(1, outputGain));
+    });
+  }, [outputGain]);
+
+  useEffect(() => {
+    if (!outputDeviceId) return;
+    Object.values(audioElsRef.current).forEach(el => {
+      if (el?.setSinkId) el.setSinkId(outputDeviceId).catch(() => {});
+    });
+  }, [outputDeviceId]);
+
+  // ---- Audio pipeline: getUserMedia -> GainNode -> destination (for peers) + analyser (for VAD) ----
+  const buildAudioPipeline = useCallback(async (deviceId) => {
+    const constraints = {
+      audio: {
+        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: { ideal: 48000 },
+        channelCount: { ideal: 1 }
+      },
+      video: false
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
+    audioCtxRef.current = ctx;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+    const source = ctx.createMediaStreamSource(stream);
+    const gain = ctx.createGain();
+    gain.gain.value = inputGain;
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+    const destination = ctx.createMediaStreamDestination();
+
+    source.connect(gain);
+    gain.connect(destination);
+    gain.connect(analyser);
+
+    rawStreamRef.current = stream;
+    processedStreamRef.current = destination.stream;
+    sourceNodeRef.current = source;
+    gainNodeRef.current = gain;
+    analyserRef.current = analyser;
+    destinationRef.current = destination;
+
+    return { rawStream: stream, processedStream: destination.stream };
+  }, [inputGain]);
+
+  const teardownAudioPipeline = useCallback(() => {
+    if (rawStreamRef.current) rawStreamRef.current.getTracks().forEach(t => t.stop());
+    rawStreamRef.current = null;
+    processedStreamRef.current = null;
+    if (sourceNodeRef.current) { try { sourceNodeRef.current.disconnect(); } catch (e) {} }
+    sourceNodeRef.current = null;
+    gainNodeRef.current = null;
+    analyserRef.current = null;
+    destinationRef.current = null;
+  }, []);
+
+  // ---- Peer connection factory (single source of truth) ----
+  const createPeerConnection = useCallback((userId, processedStream, socketRef) => {
+    const pc = new RTCPeerConnection({
+      iceServers: ICE_SERVERS,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
+    });
+
+    if (processedStream) {
+      processedStream.getTracks().forEach(track => pc.addTrack(track, processedStream));
+    }
+
+    pc.ontrack = (e) => {
+      const stream = e.streams[0] || (e.track ? new MediaStream([e.track]) : null);
+      if (stream) {
+        setRemoteStreams(prev => ({ ...prev, [userId]: stream }));
+        setConnecting(false);
+      }
+    };
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate && socketRef) {
+        socketRef.emit('voice_signal', {
+          toUserId: Number(userId),
+          signal: { type: 'ice', candidate: e.candidate }
+        });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      setPeerStates(prev => ({ ...prev, [userId]: state }));
+
+      if (state === 'failed') {
+        const count = (iceRestartCountRef.current[userId] || 0) + 1;
+        iceRestartCountRef.current[userId] = count;
+
+        if (count <= 2) {
+          pc.restartIce();
+          pc.createOffer({ iceRestart: true }).then(offer => {
+            pc.setLocalDescription(offer);
+            if (socketRef) {
+              socketRef.emit('voice_signal', { toUserId: Number(userId), signal: offer });
+            }
+          }).catch(() => {});
+        } else {
+          // Full reconnection: close and rebuild
+          try { pc.close(); } catch (e) {}
+          delete peersRef.current[userId];
+          setPeerStates(prev => { const n = { ...prev }; delete n[userId]; return n; });
+          setRemoteStreams(prev => { const n = { ...prev }; delete n[userId]; return n; });
+          iceRestartCountRef.current[userId] = 0;
+
+          if (processedStreamRef.current && socketRef) {
+            const newPc = createPeerConnection(userId, processedStreamRef.current, socketRef);
+            peersRef.current[userId] = newPc;
+            pendingCandidatesRef.current[userId] = [];
+            newPc.createOffer().then(offer => {
+              newPc.setLocalDescription(offer);
+              setAudioBitrate(newPc);
+              socketRef.emit('voice_signal', { toUserId: Number(userId), signal: offer });
+            }).catch(() => {});
+          }
+        }
+      }
+      if (state === 'connected') {
+        iceRestartCountRef.current[userId] = 0;
+      }
+    };
+
+    if (!pendingCandidatesRef.current[userId]) pendingCandidatesRef.current[userId] = [];
+    peersRef.current[userId] = pc;
+    return pc;
+  }, []);
+
+  // ---- Flush queued ICE candidates ----
+  const flushIceCandidates = useCallback(async (pc, userId) => {
+    const pending = pendingCandidatesRef.current[userId];
+    if (!pending?.length) return;
+    for (const c of pending) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+    }
+    pendingCandidatesRef.current[userId] = [];
+  }, []);
+
+  // ---- Get microphone on channel join ----
   useEffect(() => {
     if (!channel?.id) return;
     setMicError(null);
     joinTimeRef.current = Date.now();
     setDuration(0);
 
-    const getStream = async () => {
+    let cancelled = false;
+    (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        await buildAudioPipeline(inputDeviceId);
+        if (cancelled) { teardownAudioPipeline(); return; }
+        setHasLocalStream(true);
+        setConnecting(false);
+        const savedMuted = loadBool(VOICE_KEYS.muted, false);
+        if (savedMuted && rawStreamRef.current) {
+          rawStreamRef.current.getAudioTracks().forEach(t => { t.enabled = false; });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setMicError(err.message || 'Нет доступа к микрофону');
+          setConnecting(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      setHasLocalStream(false);
+    };
+  }, [channel?.id]);
+
+  // ---- Hot-swap input device via replaceTrack ----
+  useEffect(() => {
+    if (!channel?.id || !hasLocalStream) return;
+    // Skip initial mount — only react to changes
+    const currentTrack = rawStreamRef.current?.getAudioTracks()[0];
+    const currentDeviceId = currentTrack?.getSettings?.()?.deviceId;
+    if (!inputDeviceId || currentDeviceId === inputDeviceId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const oldRaw = rawStreamRef.current;
+        const constraints = {
           audio: {
+            deviceId: { exact: inputDeviceId },
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
@@ -97,23 +285,44 @@ export default function VoicePanel({
             channelCount: { ideal: 1 }
           },
           video: false
-        });
-        localStreamRef.current = stream;
-        setHasLocalStream(true);
-        setConnecting(false);
-        const savedMuted = loadVoicePanelBool(VOICE_PANEL_STORAGE_KEYS.muted, false);
-        stream.getAudioTracks().forEach(t => { t.enabled = !savedMuted; });
-      } catch (err) {
-        console.error('Voice getUserMedia:', err);
-        setMicError(err.message || 'Нет доступа к микрофону');
-        setConnecting(false);
-      }
-    };
-    getStream();
-    return () => setHasLocalStream(false);
-  }, [channel?.id]);
+        };
+        const newRaw = await navigator.mediaDevices.getUserMedia(constraints);
+        if (cancelled) { newRaw.getTracks().forEach(t => t.stop()); return; }
 
-  // Таймер в канале
+        // Disconnect old source, connect new one to existing gain node
+        if (sourceNodeRef.current) { try { sourceNodeRef.current.disconnect(); } catch (e) {} }
+        const ctx = audioCtxRef.current;
+        const newSource = ctx.createMediaStreamSource(newRaw);
+        newSource.connect(gainNodeRef.current);
+        sourceNodeRef.current = newSource;
+
+        // Apply mute state to new raw tracks
+        newRaw.getAudioTracks().forEach(t => { t.enabled = !muted; });
+
+        // Stop old raw stream
+        if (oldRaw) oldRaw.getTracks().forEach(t => t.stop());
+        rawStreamRef.current = newRaw;
+
+        // Replace tracks in all peer connections
+        const newProcessedTrack = processedStreamRef.current?.getAudioTracks()[0];
+        if (newProcessedTrack) {
+          Object.values(peersRef.current).forEach(pc => {
+            pc.getSenders().forEach(sender => {
+              if (sender.track?.kind === 'audio') {
+                sender.replaceTrack(newProcessedTrack).catch(() => {});
+              }
+            });
+          });
+        }
+      } catch (err) {
+        console.error('Device switch failed:', err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [inputDeviceId, channel?.id, hasLocalStream, muted]);
+
+  // ---- Timer ----
   useEffect(() => {
     if (!channel?.id) return;
     const t = setInterval(() => {
@@ -122,7 +331,7 @@ export default function VoicePanel({
     return () => clearInterval(t);
   }, [channel?.id]);
 
-  // Режим проверки микрофона: мьют, deafen, loopback
+  // ---- Mic test mode ----
   useEffect(() => {
     if (!micTestMode) {
       setMuted(savedMutedRef.current);
@@ -133,12 +342,11 @@ export default function VoicePanel({
     savedDeafenedRef.current = deafened;
     setMuted(true);
     setDeafened(true);
-    const stream = localStreamRef.current;
-    if (stream) stream.getAudioTracks().forEach(t => { t.enabled = false; });
+    if (rawStreamRef.current) rawStreamRef.current.getAudioTracks().forEach(t => { t.enabled = false; });
     if (socket && channel?.id) socket.emit('voice_muted', { channelId: channel.id, muted: true });
     if (socket && channel?.id) socket.emit('voice_deafened', { channelId: channel.id, deafened: true });
     return () => {
-      const s = localStreamRef.current;
+      const s = rawStreamRef.current;
       if (s) s.getAudioTracks().forEach(t => { t.enabled = !savedMutedRef.current; });
       setMuted(savedMutedRef.current);
       setDeafened(savedDeafenedRef.current);
@@ -149,18 +357,11 @@ export default function VoicePanel({
     };
   }, [micTestMode]);
 
-  // Индикатор речи: анализ громкости и отправка voice_speaking
+  // ---- Voice Activity Detection ----
   useEffect(() => {
-    if (!hasLocalStream) return;
-    const stream = localStreamRef.current;
-    if (!stream || !socket || !channel?.id || muted || micTestMode) return;
-
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioContext.createMediaStreamSource(stream);
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.8;
-    source.connect(analyser);
+    if (!hasLocalStream || !socket || !channel?.id || muted || micTestMode) return;
+    const analyser = analyserRef.current;
+    if (!analyser) return;
 
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     let lastSpeaking = false;
@@ -168,7 +369,7 @@ export default function VoicePanel({
     const SILENT_MS = 250;
 
     const check = () => {
-      if (!localStreamRef.current || localStreamRef.current.getAudioTracks().every(t => !t.enabled)) return;
+      if (!rawStreamRef.current || rawStreamRef.current.getAudioTracks().every(t => !t.enabled)) return;
       const speakThreshold = getSpeakThreshold();
       analyser.getByteFrequencyData(dataArray);
       const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
@@ -179,30 +380,22 @@ export default function VoicePanel({
           lastSpeaking = true;
           socket.emit('voice_speaking', { channelId: channel.id, speaking: true });
         }
-      } else {
-        if (lastSpeaking) {
-          silentSince = silentSince || Date.now();
-          if (Date.now() - silentSince >= SILENT_MS) {
-            lastSpeaking = false;
-            silentSince = 0;
-            socket.emit('voice_speaking', { channelId: channel.id, speaking: false });
-          }
+      } else if (lastSpeaking) {
+        silentSince = silentSince || Date.now();
+        if (Date.now() - silentSince >= SILENT_MS) {
+          lastSpeaking = false;
+          silentSince = 0;
+          socket.emit('voice_speaking', { channelId: channel.id, speaking: false });
         }
       }
     };
 
     const id = setInterval(check, 100);
     speakingIntervalRef.current = id;
-    audioContextRef.current = audioContext;
-    analyserRef.current = analyser;
-
-    return () => {
-      clearInterval(id);
-      try { audioContext.close(); } catch (e) {}
-    };
+    return () => clearInterval(id);
   }, [channel?.id, socket, muted, hasLocalStream, micTestMode]);
 
-  // Слушаем индикатор речи от других
+  // ---- Speaking indicators from others ----
   useEffect(() => {
     if (!socket) return;
     const onSpeaking = ({ userId, speaking }) => {
@@ -212,95 +405,52 @@ export default function VoicePanel({
     return () => socket.off('voice_speaking', onSpeaking);
   }, [socket]);
 
-  // WebRTC: подключение к участникам (после получения потока)
+  // ---- WebRTC: connect to peers ----
   useEffect(() => {
-    if (!channel || !socket || !hasLocalStream || !localStreamRef.current) return;
+    if (!channel || !socket || !hasLocalStream || !processedStreamRef.current) return;
     const channelId = channel.id;
-    const localStream = localStreamRef.current;
-    let peers = {};
-    const remoteStreamsMap = {};
+    const processedStream = processedStreamRef.current;
 
     const cleanup = () => {
       socket.emit('leave_voice_channel', channelId);
-      Object.values(peers).forEach(pc => { try { pc.close(); } catch (e) {} });
+      Object.values(peersRef.current).forEach(pc => { try { pc.close(); } catch (e) {} });
       peersRef.current = {};
+      pendingCandidatesRef.current = {};
+      iceRestartCountRef.current = {};
       setRemoteStreams({});
-    };
-
-    const trySetAudioBitrate = (connection, maxBitrate = 64000) => {
-      connection.getSenders().forEach(sender => {
-        if (sender.track && sender.track.kind === 'audio') {
-          sender.getParameters().then(params => {
-            if (params.encodings && params.encodings[0]) {
-              params.encodings[0].maxBitrate = maxBitrate;
-              return sender.setParameters(params);
-            }
-          }).catch(() => {});
-        }
-      });
-    };
-
-    const iceServers = [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' }
-    ];
-    const pendingCandidates = {};
-    const flushIceCandidates = async (pc, userId) => {
-      const pending = pendingCandidates[userId];
-      if (!pending || pending.length === 0) return;
-      for (const c of pending) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (err) {}
-      }
-      pendingCandidates[userId] = [];
-    };
-
-    const getOrCreatePeer = (userId) => {
-      if (peers[userId]) return peers[userId];
-      const pc = new RTCPeerConnection({
-        iceServers,
-        bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require'
-      });
-      if (localStream) localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-      pc.ontrack = (e) => {
-        const stream = e.streams[0] || e.track ? new MediaStream([e.track]) : null;
-        if (stream) {
-          remoteStreamsMap[userId] = stream;
-          setRemoteStreams(prev => ({ ...prev, [userId]: stream }));
-          setConnecting(false);
-        }
-      };
-      pc.onicecandidate = (e) => {
-        if (e.candidate)
-          socket.emit('voice_signal', { toUserId: Number(userId), signal: { type: 'ice', candidate: e.candidate } });
-      };
-      peers[userId] = pc;
-      peersRef.current[userId] = pc;
-      if (!pendingCandidates[userId]) pendingCandidates[userId] = [];
-      return pc;
+      setPeerStates({});
     };
 
     const handleSignal = async ({ fromUserId, signal }) => {
       const fromId = Number(fromUserId);
       if (fromId === currentUserId) return;
-      const pc = getOrCreatePeer(fromId);
-      if (signal.type === 'offer') {
-        await pc.setRemoteDescription(new RTCSessionDescription(signal));
-        await flushIceCandidates(pc, fromId);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        socket.emit('voice_signal', { toUserId: fromId, signal: pc.localDescription });
-      } else if (signal.type === 'answer') {
-        await pc.setRemoteDescription(new RTCSessionDescription(signal));
-        await flushIceCandidates(pc, fromId);
-      } else if (signal.candidate) {
-        if (pc.remoteDescription) {
-          try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch (e) {}
-        } else {
-          if (!pendingCandidates[fromId]) pendingCandidates[fromId] = [];
-          pendingCandidates[fromId].push(signal.candidate);
+      let pc = peersRef.current[fromId];
+      if (!pc) {
+        pc = createPeerConnection(fromId, processedStream, socket);
+        pendingCandidatesRef.current[fromId] = [];
+      }
+
+      try {
+        if (signal.type === 'offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal));
+          await flushIceCandidates(pc, fromId);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          setAudioBitrate(pc);
+          socket.emit('voice_signal', { toUserId: fromId, signal: pc.localDescription });
+        } else if (signal.type === 'answer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal));
+          await flushIceCandidates(pc, fromId);
+        } else if (signal.candidate) {
+          if (pc.remoteDescription) {
+            try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch (e) {}
+          } else {
+            if (!pendingCandidatesRef.current[fromId]) pendingCandidatesRef.current[fromId] = [];
+            pendingCandidatesRef.current[fromId].push(signal.candidate);
+          }
         }
+      } catch (err) {
+        console.error('Signal handling error:', err);
       }
     };
 
@@ -310,11 +460,16 @@ export default function VoicePanel({
       for (const p of participants) {
         const peerId = Number(p.userId);
         if (peerId === currentUserId) continue;
-        const pc = getOrCreatePeer(peerId);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        trySetAudioBitrate(pc);
-        socket.emit('voice_signal', { toUserId: peerId, signal: pc.localDescription });
+        const pc = createPeerConnection(peerId, processedStream, socket);
+        pendingCandidatesRef.current[peerId] = [];
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          setAudioBitrate(pc);
+          socket.emit('voice_signal', { toUserId: peerId, signal: pc.localDescription });
+        } catch (err) {
+          console.error('Offer creation error:', err);
+        }
       }
       if (participants.filter(p => Number(p.userId) !== currentUserId).length === 0) setConnecting(false);
     })();
@@ -323,98 +478,73 @@ export default function VoicePanel({
       socket.off('voice_signal', handleSignal);
       cleanup();
     };
-  }, [channel?.id, currentUserId, socket, hasLocalStream]);
+  }, [channel?.id, currentUserId, socket, hasLocalStream, createPeerConnection, flushIceCandidates]);
 
-  // Новый участник — создаём offer
+  // ---- New participant: create offer ----
   useEffect(() => {
-    if (!channel || !socket || !hasLocalStream || !localStreamRef.current) return;
-    const setAudioBitrate = (connection, maxBitrate = 64000) => {
-      connection.getSenders().forEach(sender => {
-        if (sender.track && sender.track.kind === 'audio') {
-          sender.getParameters().then(params => {
-            if (params.encodings && params.encodings[0]) {
-              params.encodings[0].maxBitrate = maxBitrate;
-              return sender.setParameters(params);
-            }
-          }).catch(() => {});
-        }
-      });
-    };
-    const iceServers = [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' }
-    ];
-    const participantsWithoutMe = participants.filter(p => Number(p.userId) !== currentUserId);
-    participantsWithoutMe.forEach(p => {
+    if (!channel || !socket || !hasLocalStream || !processedStreamRef.current) return;
+    const processedStream = processedStreamRef.current;
+
+    participants.forEach(p => {
       const peerId = Number(p.userId);
-      if (!peersRef.current[peerId]) {
-        const pc = new RTCPeerConnection({
-          iceServers,
-          bundlePolicy: 'max-bundle',
-          rtcpMuxPolicy: 'require'
-        });
-        localStreamRef.current.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current));
-        pc.ontrack = (e) => {
-          const stream = e.streams[0] || (e.track ? new MediaStream([e.track]) : null);
-          if (stream) setRemoteStreams(prev => ({ ...prev, [peerId]: stream }));
-        };
-        pc.onicecandidate = (e) => {
-          if (e.candidate) socket.emit('voice_signal', { toUserId: peerId, signal: { type: 'ice', candidate: e.candidate } });
-        };
-        peersRef.current[peerId] = pc;
-        pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
-          setAudioBitrate(pc);
-          socket.emit('voice_signal', { toUserId: peerId, signal: pc.localDescription });
-        });
-      }
+      if (peerId === currentUserId || peersRef.current[peerId]) return;
+      const pc = createPeerConnection(peerId, processedStream, socket);
+      pendingCandidatesRef.current[peerId] = [];
+      pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+        setAudioBitrate(pc);
+        socket.emit('voice_signal', { toUserId: peerId, signal: pc.localDescription });
+      }).catch(() => {});
     });
-  }, [channel?.id, participants, currentUserId, socket, hasLocalStream]);
+  }, [channel?.id, participants, currentUserId, socket, hasLocalStream, createPeerConnection]);
 
-  // Принудительное воспроизведение удалённого звука (обход политики autoplay в части браузеров)
+  // ---- Autoplay remote audio ----
   useEffect(() => {
-    const els = audioElsRef.current;
-    Object.keys(els).forEach(userId => {
-      const el = els[userId];
-      if (el && el.srcObject && !el.muted && el.paused) el.play().catch(() => {});
+    Object.values(audioElsRef.current).forEach(el => {
+      if (el?.srcObject && !el.muted && el.paused) el.play().catch(() => {});
     });
   }, [remoteStreams]);
 
-  // Периодическая попытка воспроизведения (на случай, если поток пришёл с задержкой после блокировки autoplay)
   useEffect(() => {
     if (!channel?.id || Object.keys(remoteStreams).length === 0) return;
     const id = setInterval(() => {
       Object.values(audioElsRef.current).forEach(el => {
-        if (el && el.srcObject && !el.muted && el.paused) el.play().catch(() => {});
+        if (el?.srcObject && !el.muted && el.paused) el.play().catch(() => {});
       });
     }, 2000);
     return () => clearInterval(id);
   }, [channel?.id, remoteStreams]);
 
-  // Синхронизация «выключить звук»: заглушаем все удалённые потоки
+  // ---- Sync deafen to remote audio ----
   useEffect(() => {
-    const els = audioElsRef.current;
-    Object.keys(els).forEach(userId => {
-      const el = els[userId];
+    Object.values(audioElsRef.current).forEach(el => {
       if (el) el.muted = deafened;
     });
   }, [deafened]);
 
-  // При входе в канал отправляем серверу сохранённое состояние микрофона и наушников
+  // ---- Send saved muted/deafened state on join ----
   useEffect(() => {
     if (!channel?.id || !socket || !hasLocalStream) return;
     socket.emit('voice_muted', { channelId: channel.id, muted });
     socket.emit('voice_deafened', { channelId: channel.id, deafened });
   }, [channel?.id, socket, hasLocalStream]);
 
+  // ---- Cleanup everything on unmount / channel change ----
+  useEffect(() => {
+    return () => {
+      teardownAudioPipeline();
+      if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch (e) {} audioCtxRef.current = null; }
+      if (speakingIntervalRef.current) clearInterval(speakingIntervalRef.current);
+    };
+  }, [channel?.id, teardownAudioPipeline]);
+
   const inVoice = !!channel;
 
   const toggleMute = () => {
     const next = !muted;
     setMuted(next);
-    saveVoicePanelBool(VOICE_PANEL_STORAGE_KEYS.muted, next);
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = !next; });
+    saveBool(VOICE_KEYS.muted, next);
+    if (rawStreamRef.current) {
+      rawStreamRef.current.getAudioTracks().forEach(t => { t.enabled = !next; });
     }
     if (socket && channel?.id) socket.emit('voice_muted', { channelId: channel.id, muted: next });
   };
@@ -422,7 +552,7 @@ export default function VoicePanel({
   const toggleDeafen = () => {
     const next = !deafened;
     setDeafened(next);
-    saveVoicePanelBool(VOICE_PANEL_STORAGE_KEYS.deafened, next);
+    saveBool(VOICE_KEYS.deafened, next);
     if (socket && channel?.id) socket.emit('voice_deafened', { channelId: channel.id, deafened: next });
   };
 
@@ -437,9 +567,21 @@ export default function VoicePanel({
 
   const playAllRemoteAudio = () => {
     Object.values(audioElsRef.current).forEach(el => {
-      if (el && el.srcObject && !el.muted) el.play().catch(() => {});
+      if (el?.srcObject && !el.muted) el.play().catch(() => {});
     });
   };
+
+  // Connection quality indicator
+  const connectionQuality = (() => {
+    const states = Object.values(peerStates);
+    if (states.length === 0) return connecting ? 'connecting' : 'idle';
+    if (states.every(s => s === 'connected')) return 'good';
+    if (states.some(s => s === 'failed')) return 'bad';
+    if (states.some(s => s === 'connecting' || s === 'new')) return 'connecting';
+    return 'fair';
+  })();
+
+  const qualityColors = { good: '#3ba55c', fair: '#faa61a', bad: '#ed4245', connecting: '#747f8d', idle: '#747f8d' };
 
   return (
     <div
@@ -456,7 +598,27 @@ export default function VoicePanel({
         </div>
         <div className="voice-panel-user-info">
           <span className="voice-panel-username">{currentUsername || user?.username || 'Вы'}</span>
-          <span className="voice-panel-user-status">Невидимый</span>
+          <span className="voice-panel-user-status" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span
+              style={{
+                display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                backgroundColor: qualityColors[connectionQuality],
+                flexShrink: 0
+              }}
+              title={
+                connectionQuality === 'good' ? 'Подключено' :
+                connectionQuality === 'fair' ? 'Нестабильное соединение' :
+                connectionQuality === 'bad' ? 'Проблема соединения' :
+                'Подключение...'
+              }
+            />
+            <span style={{ fontSize: 11, opacity: 0.7 }}>
+              {connectionQuality === 'good' ? 'Голосовой канал' :
+               connectionQuality === 'bad' ? 'Переподключение...' :
+               connectionQuality === 'connecting' ? 'Подключение...' :
+               'Голосовой канал'}
+            </span>
+          </span>
         </div>
         <div className="voice-panel-user-actions">
           {inVoice && (
@@ -512,13 +674,12 @@ export default function VoicePanel({
         <audio
           key={userId}
           ref={el => {
-            if (!el) {
-              delete audioElsRef.current[userId];
-              return;
-            }
+            if (!el) { delete audioElsRef.current[userId]; return; }
             audioElsRef.current[userId] = el;
             el.srcObject = stream;
             el.muted = deafened;
+            el.volume = Math.max(0, Math.min(1, outputGain));
+            if (outputDeviceId && el.setSinkId) el.setSinkId(outputDeviceId).catch(() => {});
             el.play().catch(() => {});
           }}
           autoPlay

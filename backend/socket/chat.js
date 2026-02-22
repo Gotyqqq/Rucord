@@ -459,6 +459,21 @@ function setupSocket(io) {
     socket.on('voice_signal', (data) => {
       const { toUserId, signal } = data;
       if (toUserId == null || toUserId === '' || !signal) return;
+      // Validate both users share a voice channel
+      let shareRoom = false;
+      for (const r of socket.rooms) {
+        if (r.startsWith('voice_')) {
+          const room = ioInstance.sockets.adapter.rooms.get(r);
+          if (room) {
+            for (const sid of room) {
+              const s = ioInstance.sockets.sockets.get(sid);
+              if (s && s.user && s.user.id === Number(toUserId)) { shareRoom = true; break; }
+            }
+          }
+          if (shareRoom) break;
+        }
+      }
+      if (!shareRoom) return;
       const targetRoom = `user_${Number(toUserId)}`;
       ioInstance.to(targetRoom).emit('voice_signal', {
         fromUserId: socket.user.id,

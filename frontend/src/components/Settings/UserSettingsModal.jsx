@@ -5,37 +5,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../utils/api';
-
-const VOICE_STORAGE_KEYS = {
-  inputDeviceId: 'rucord_voice_input_device',
-  outputDeviceId: 'rucord_voice_output_device',
-  inputGain: 'rucord_voice_input_gain',
-  outputGain: 'rucord_voice_output_gain',
-  sensitivityAuto: 'rucord_voice_sensitivity_auto',
-  sensitivityThreshold: 'rucord_voice_sensitivity_threshold'
-};
-
-function loadNumber(key, def) {
-  try {
-    const v = localStorage.getItem(key);
-    if (v != null) { const n = parseFloat(v); if (!Number.isNaN(n)) return n; }
-  } catch (e) {}
-  return def;
-}
-function saveNumber(key, value) {
-  try { localStorage.setItem(key, String(value)); } catch (e) {}
-}
-function loadString(key, def) {
-  try { const v = localStorage.getItem(key); return v != null ? v : def; } catch (e) {}
-  return def;
-}
-function loadBool(key, def) {
-  try { const v = localStorage.getItem(key); return v === 'true' ? true : v === 'false' ? false : def; } catch (e) {}
-  return def;
-}
-function saveBool(key, value) {
-  try { localStorage.setItem(key, value ? 'true' : 'false'); } catch (e) {}
-}
+import {
+  VOICE_KEYS,
+  loadNumber, saveNumber, loadString, saveString,
+  loadBool, saveBool, notifyStorageChange
+} from '../../utils/voiceConfig';
 
 const SENSITIVITY_BARS = 24;
 
@@ -44,12 +18,12 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
   const [tab, setTab] = useState('voice'); // 'voice' | 'profile'
   const [inputDevices, setInputDevices] = useState([]);
   const [outputDevices, setOutputDevices] = useState([]);
-  const [inputDeviceId, setInputDeviceId] = useState(() => loadString(VOICE_STORAGE_KEYS.inputDeviceId, ''));
-  const [outputDeviceId, setOutputDeviceId] = useState(() => loadString(VOICE_STORAGE_KEYS.outputDeviceId, ''));
-  const [inputGain, setInputGain] = useState(() => loadNumber(VOICE_STORAGE_KEYS.inputGain, 1));
-  const [outputGain, setOutputGain] = useState(() => loadNumber(VOICE_STORAGE_KEYS.outputGain, 1));
-  const [sensitivityAuto, setSensitivityAuto] = useState(() => loadBool(VOICE_STORAGE_KEYS.sensitivityAuto, true));
-  const [sensitivityThreshold, setSensitivityThreshold] = useState(() => Math.round(loadNumber(VOICE_STORAGE_KEYS.sensitivityThreshold, 25)));
+  const [inputDeviceId, setInputDeviceId] = useState(() => loadString(VOICE_KEYS.inputDeviceId, ''));
+  const [outputDeviceId, setOutputDeviceId] = useState(() => loadString(VOICE_KEYS.outputDeviceId, ''));
+  const [inputGain, setInputGain] = useState(() => loadNumber(VOICE_KEYS.inputGain, 1));
+  const [outputGain, setOutputGain] = useState(() => loadNumber(VOICE_KEYS.outputGain, 1));
+  const [sensitivityAuto, setSensitivityAuto] = useState(() => loadBool(VOICE_KEYS.sensitivityAuto, true));
+  const [sensitivityThreshold, setSensitivityThreshold] = useState(() => Math.round(loadNumber(VOICE_KEYS.sensitivityThreshold, 25)));
   const [sensitivityLevel, setSensitivityLevel] = useState(0);
   const [testingMic, setTestingMic] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
@@ -63,6 +37,8 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
   const animationRef = useRef(null);
   const sensitivityStreamRef = useRef(null);
   const sensitivityAnimationRef = useRef(null);
+  const sensitivityGainRef = useRef(null);
+  const micTestGainRef = useRef(null);
   const loopbackAudioRef = useRef(null);
 
   useEffect(() => {
@@ -86,23 +62,33 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
   }, []);
 
   useEffect(() => {
-    saveNumber(VOICE_STORAGE_KEYS.inputGain, inputGain);
+    saveNumber(VOICE_KEYS.inputGain, inputGain);
+    notifyStorageChange(VOICE_KEYS.inputGain);
   }, [inputGain]);
   useEffect(() => {
-    saveNumber(VOICE_STORAGE_KEYS.outputGain, outputGain);
+    saveNumber(VOICE_KEYS.outputGain, outputGain);
+    notifyStorageChange(VOICE_KEYS.outputGain);
   }, [outputGain]);
   useEffect(() => {
-    if (inputDeviceId) saveNumber(VOICE_STORAGE_KEYS.inputDeviceId, inputDeviceId);
+    if (inputDeviceId) {
+      saveString(VOICE_KEYS.inputDeviceId, inputDeviceId);
+      notifyStorageChange(VOICE_KEYS.inputDeviceId);
+    }
   }, [inputDeviceId]);
   useEffect(() => {
-    if (outputDeviceId) saveNumber(VOICE_STORAGE_KEYS.outputDeviceId, outputDeviceId);
+    if (outputDeviceId) {
+      saveString(VOICE_KEYS.outputDeviceId, outputDeviceId);
+      notifyStorageChange(VOICE_KEYS.outputDeviceId);
+    }
   }, [outputDeviceId]);
 
   useEffect(() => {
-    saveBool(VOICE_STORAGE_KEYS.sensitivityAuto, sensitivityAuto);
+    saveBool(VOICE_KEYS.sensitivityAuto, sensitivityAuto);
+    notifyStorageChange(VOICE_KEYS.sensitivityAuto);
   }, [sensitivityAuto]);
   useEffect(() => {
-    saveNumber(VOICE_STORAGE_KEYS.sensitivityThreshold, sensitivityThreshold);
+    saveNumber(VOICE_KEYS.sensitivityThreshold, sensitivityThreshold);
+    notifyStorageChange(VOICE_KEYS.sensitivityThreshold);
   }, [sensitivityThreshold]);
 
   useEffect(() => {
@@ -131,10 +117,12 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
         };
         stream = await navigator.mediaDevices.getUserMedia(constraints);
         sensitivityStreamRef.current = stream;
+        sensitivityGainRef.current = null;
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const src = ctx.createMediaStreamSource(stream);
         const gainNode = ctx.createGain();
         gainNode.gain.value = inputGain;
+        sensitivityGainRef.current = gainNode;
         src.connect(gainNode);
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
@@ -156,9 +144,16 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
     return () => {
       if (stream) stream.getTracks().forEach(t => t.stop());
       sensitivityStreamRef.current = null;
+      sensitivityGainRef.current = null;
       if (sensitivityAnimationRef.current) cancelAnimationFrame(sensitivityAnimationRef.current);
     };
-  }, [tab, inputDeviceId, inputGain]);
+  }, [tab, inputDeviceId]);
+
+  // Обновление громкости микрофона без перезапуска потока
+  useEffect(() => {
+    if (sensitivityGainRef.current) sensitivityGainRef.current.gain.value = inputGain;
+    if (micTestGainRef.current) micTestGainRef.current.gain.value = inputGain;
+  }, [inputGain]);
 
   // Прослушивание своего голоса (loopback) при проверке в голосовом канале
   useEffect(() => {
@@ -205,6 +200,7 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
         streamRef.current.getTracks().forEach(t => t.stop());
       }
       streamRef.current = null;
+      micTestGainRef.current = null;
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
       setMicLevel(0);
       setMicTestError('');
@@ -215,10 +211,12 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
     const stream = sensitivityStreamRef.current;
     if (stream) {
       streamRef.current = stream;
+      micTestGainRef.current = null;
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const src = ctx.createMediaStreamSource(stream);
       const gainNode = ctx.createGain();
       gainNode.gain.value = inputGain;
+      micTestGainRef.current = gainNode;
       src.connect(gainNode);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
@@ -245,10 +243,12 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
           };
           newStream = await navigator.mediaDevices.getUserMedia(constraints);
           streamRef.current = newStream;
+          micTestGainRef.current = null;
           const ctx = new (window.AudioContext || window.webkitAudioContext)();
           const src = ctx.createMediaStreamSource(newStream);
           const gainNode = ctx.createGain();
           gainNode.gain.value = inputGain;
+          micTestGainRef.current = gainNode;
           src.connect(gainNode);
           const analyser = ctx.createAnalyser();
           analyser.fftSize = 256;
@@ -276,7 +276,7 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [testingMic, inputDeviceId, inputGain, inVoiceChannel, onStartMicTest]);
+  }, [testingMic, inputDeviceId, inVoiceChannel, onStartMicTest]);
 
   const handleInputDeviceChange = (e) => {
     const id = e.target.value;
