@@ -31,9 +31,9 @@ router.post('/register', (req, res) => {
       return res.status(400).json({ error: 'Пароль должен быть не менее 6 символов' });
     }
 
-    // Проверяем, не занят ли email или имя
+    // Проверяем, не занят ли email или имя (email без учёта регистра)
     const existing = db.prepare(
-      'SELECT id FROM users WHERE email = ? OR username = ?'
+      'SELECT id FROM users WHERE LOWER(email) = LOWER(?) OR username = ?'
     ).get(email, username);
 
     if (existing) {
@@ -79,8 +79,8 @@ router.post('/login', (req, res) => {
       return res.status(400).json({ error: 'Email и пароль обязательны' });
     }
 
-    // Ищем пользователя по email
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    // Ищем пользователя по email (без учёта регистра)
+    const user = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)').get(email);
     if (!user) {
       return res.status(401).json({ error: 'Неверный email или пароль' });
     }
