@@ -207,7 +207,18 @@ export default function ChannelList({
                     </div>
                     <span className="voice-channel-user-name">{p.username}</span>
                     {p.muted && (
-                      <span className="voice-channel-user-muted" title="Микрофон выключен">🔇</span>
+                      <span className="voice-channel-user-muted" title="Микрофон выключен" aria-hidden>
+                        <svg className="icon-mic-off" viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
+                          <path d="M8 1a2 2 0 0 1 2 2v4a2 2 0 0 1-4 0V3a2 2 0 0 1 2-2z" />
+                          <path d="M5 7v2a3 3 0 0 0 6 0V7h1v2a4 4 0 0 1-8 0V7h1z" />
+                          <path className="icon-mic-off-line" d="M2 2L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+                        </svg>
+                      </span>
+                    )}
+                    {p.deafened && (
+                      <span className="voice-channel-user-deafened" title="Звук выключен" aria-hidden>
+                        <span className="icon-headphone-off">🎧</span>
+                      </span>
                     )}
                   </div>
                 ))}

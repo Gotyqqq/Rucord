@@ -236,7 +236,7 @@ input, select {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 12px 0;
+  padding: 12px 0 8px 0;
   gap: 8px;
   overflow-y: auto;
   font-family: 'Nunito', sans-serif;
@@ -324,12 +324,14 @@ input, select {
 
 .server-list-bottom {
   margin-top: auto;
-  padding-top: 8px;
   width: 100%;
+  height: 64px;
+  min-height: 64px;
+  padding: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
 }
 
 .logout-btn {
@@ -339,8 +341,9 @@ input, select {
   justify-content: center;
   gap: 2px;
   width: 48px;
-  min-height: 52px;
-  padding: 6px 0;
+  height: 48px;
+  min-height: 48px;
+  padding: 0;
   background: #36393f;
   color: #ed4245;
   border: none;
@@ -356,15 +359,6 @@ input, select {
 
 .logout-btn:hover {
   background: #ed4245;
-  color: white;
-}
-
-.logout-btn.settings-btn {
-  color: #b9bbbe;
-}
-
-.logout-btn.settings-btn:hover {
-  background: #5865f2;
   color: white;
 }
 
@@ -453,8 +447,46 @@ input, select {
 }
 
 /* ============================================================
-   СПИСОК КАНАЛОВ (вторая панель, 240px)
+   СПИСОК КАНАЛОВ (ширина меняется перетаскиванием разделителя)
    ============================================================ */
+
+.channel-list-wrapper {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #2f3136;
+  min-height: 100%;
+  align-self: stretch;
+}
+
+.channel-list-wrapper .channel-list {
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Место под нижнюю панель (72px = блок ~64px + отступ 8px) — контент каналов заканчивается ровно по «красной линии» */
+.app-bottom-spacer {
+  height: 72px;
+  min-height: 72px;
+  flex-shrink: 0;
+  background: #2f3136;
+}
+
+.channel-resizer {
+  width: 4px;
+  min-width: 4px;
+  flex-shrink: 0;
+  background: transparent;
+  cursor: col-resize;
+  transition: background 0.15s;
+}
+
+.channel-resizer:hover,
+.channel-resizer:active {
+  background: #5865f2;
+}
 
 .channel-list {
   width: 240px;
@@ -945,20 +977,18 @@ input, select {
 
 /* ---- Ввод сообщения ---- */
 
-.chat-input-form {
-  display: flex;
-  gap: 0;
-}
-
 .chat-input {
   flex: 1;
-  padding: 12px 16px;
+  min-width: 200px;
+  min-height: 48px;
+  padding: 16px 20px;
   background: #40444b;
   border: none;
   border-radius: 0;
   color: #dcddde;
   font-size: 16px;
   outline: none;
+  line-height: 1.4;
 }
 
 .chat-input::placeholder {
@@ -966,15 +996,17 @@ input, select {
 }
 
 .chat-send-btn {
-  padding: 12px 16px;
+  padding: 0 20px;
   background: #5865f2;
   color: white;
-  border-radius: 0 8px 8px 0;
-  font-size: 18px;
+  border: none;
+  border-radius: 0 12px 12px 0;
+  font-size: 20px;
   transition: background 0.2s;
+  flex-shrink: 0;
 }
 
-.chat-send-btn:hover {
+.chat-send-btn:hover:not(:disabled) {
   background: #4752c4;
 }
 
@@ -985,8 +1017,9 @@ input, select {
 
 .chat-file-input-hidden { display: none; }
 
+/* Левый блок: кнопки прикрепить, эмодзи, GIF — скругление слева (как на скриншоте 2) */
 .chat-toolbar-btn {
-  padding: 10px 12px;
+  padding: 14px 14px;
   background: #40444b;
   border: none;
   color: #b9bbbe;
@@ -994,8 +1027,9 @@ input, select {
   font-size: 16px;
   border-radius: 0;
   transition: background 0.2s;
+  flex-shrink: 0;
 }
-.chat-toolbar-btn:first-of-type { border-radius: 8px 0 0 8px; }
+.chat-toolbar-btn:first-of-type { border-radius: 12px 0 0 12px; }
 .chat-toolbar-btn:hover:not(:disabled) { background: #4f545c; }
 .chat-toolbar-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
@@ -1949,112 +1983,39 @@ input, select {
    ГОЛОСОВОЙ КАНАЛ (панель внизу + участники под каналом в сайдбаре)
    ============================================================ */
 
+/* Нижний блок: кнопка «Покинуть» сверху, под нею — микрофон/настройки; при сжатии кнопки сдвигаются к аватару и перекрывают имя/статус */
 .voice-panel {
   position: fixed;
-  bottom: 0;
-  left: 72px;
-  right: 240px;
+  bottom: 8px;
+  left: 80px;
+  min-height: 76px;
+  box-sizing: border-box;
   background: #2f3136;
-  border-top: 1px solid #202225;
-  padding: 12px 16px;
+  border-radius: 12px;
+  padding: 0 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  justify-content: center;
+  gap: 0;
   z-index: 50;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  min-width: 0;
+  overflow: hidden;
+  container-type: inline-size;
+  container-name: voice-panel;
 }
 
-.voice-panel-top {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.voice-panel-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.voice-panel-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #3ba55c;
-}
-
-.voice-panel-status-text {
-  font-size: 13px;
-  color: #3ba55c;
-  font-weight: 500;
-}
-
-.voice-panel-channel-name {
-  font-size: 13px;
-  color: #dcddde;
-}
-
-.voice-panel-top-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.voice-panel-audio-indicator {
-  font-size: 14px;
-  color: #dcddde;
-  letter-spacing: 2px;
-}
-
-.voice-panel-end-call {
-  background: #ed4245;
-  border: none;
-  color: #fff;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.voice-panel-end-call:hover {
-  background: #c03537;
-}
-
-.voice-panel-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.voice-panel-ctrl-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: #4f545c;
-  border: none;
-  color: #fff;
-  font-size: 18px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.voice-panel-ctrl-btn:hover {
-  background: #5d6269;
+.voice-panel-corner .voice-panel-user-row {
+  border-top: none;
+  padding-top: 0;
 }
 
 .voice-panel-user-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 0 0;
-  border-top: 1px solid #202225;
+  padding: 0;
+  min-width: 0;
 }
 
 .voice-panel-user-avatar {
@@ -2073,50 +2034,134 @@ input, select {
 }
 
 .voice-panel-user-info {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  justify-content: center;
+  gap: 2px;
+  position: relative;
+  z-index: 0;
 }
 
 .voice-panel-username {
   font-size: 14px;
   font-weight: 600;
   color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .voice-panel-user-status {
   font-size: 12px;
   color: #72767d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .voice-panel-user-actions {
-  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.voice-panel-leave-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.voice-panel-controls-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+}
+
+/* При сжатии панели блок кнопок сдвигается к аватару и перекрывает имя/статус (не заходя на аватар) */
+@container voice-panel (max-width: 240px) {
+  .voice-panel-user-actions {
+    margin-left: -40px;
+  }
+}
+
+@container voice-panel (max-width: 220px) {
+  .voice-panel-user-actions {
+    margin-left: -20px;
+  }
+}
+
+@container voice-panel (max-width: 200px) {
+  .voice-panel-user-actions {
+    margin-left: 0;
+  }
 }
 
 .voice-panel-mic-btn,
 .voice-panel-headphone-btn,
 .voice-panel-gear-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 6px;
   background: #4f545c;
   border: none;
   color: #fff;
-  font-size: 16px;
+  font-size: 14px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 2px;
+  box-sizing: border-box;
 }
 
-.voice-panel-mic-btn:hover,
-.voice-panel-headphone-btn:hover,
+.voice-panel-mic-btn:hover:not(:disabled),
+.voice-panel-headphone-btn:hover:not(:disabled),
 .voice-panel-gear-btn:hover {
   background: #5d6269;
+}
+
+.voice-panel-btn-disabled,
+.voice-panel-mic-btn:disabled,
+.voice-panel-headphone-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.voice-panel-leave-btn {
+  height: 36px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: #ed4245;
+  border: none;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.voice-panel-leave-btn:hover {
+  background: #c03537;
+}
+
+.voice-panel-leave-icon {
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.95;
+}
+
+.voice-panel-leave-text {
+  white-space: nowrap;
 }
 
 .voice-panel-mic-btn.muted {
@@ -2127,9 +2172,45 @@ input, select {
   background: #c03537;
 }
 
+.voice-panel-mic-icon {
+  display: inline-block;
+  line-height: 1;
+}
+
+.voice-panel-mic-icon-off {
+  color: #fff;
+}
+
 .voice-panel-mic-arrow {
   font-size: 10px;
   opacity: 0.9;
+}
+
+.voice-panel-headphone-btn.deafened {
+  background: #ed4245;
+}
+
+.voice-panel-headphone-btn.deafened:hover:not(:disabled) {
+  background: #c03537;
+}
+
+.voice-panel-headphone-icon {
+  position: relative;
+  display: inline-block;
+  line-height: 1;
+}
+
+.voice-panel-headphone-icon-off::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120%;
+  height: 2px;
+  background: currentColor;
+  transform: translate(-50%, -50%) rotate(45deg);
+  transform-origin: center;
+  pointer-events: none;
 }
 
 .voice-panel-mic-error {
@@ -2144,7 +2225,9 @@ input, select {
 
 @media (max-width: 900px) {
   .voice-panel {
-    right: 0;
+    width: 184px;
+    max-width: 184px;
+    left: 80px;
   }
 }
 
@@ -2192,10 +2275,52 @@ input, select {
   min-width: 0;
 }
 
-.voice-channel-user-muted {
-  font-size: 14px;
+.voice-channel-user-muted,
+.voice-channel-user-deafened {
   flex-shrink: 0;
   opacity: 0.9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: #dcddde;
+}
+
+.voice-channel-user-muted .icon-mic-off {
+  display: block;
+  flex-shrink: 0;
+}
+
+.voice-channel-user-muted .icon-mic-off-line {
+  stroke: #ed4245;
+}
+
+.voice-channel-user-deafened .icon-headphone-off {
+  position: relative;
+  display: inline-block;
+  font-size: 16px;
+  line-height: 1;
+  width: 16px;
+  height: 16px;
+  text-align: center;
+}
+
+.voice-channel-user-deafened .icon-headphone-off::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 120%;
+  height: 2px;
+  background: #ed4245;
+  transform: translate(-50%, -50%) rotate(45deg);
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.voice-channel-user-deafened {
+  margin-right: 6px;
 }
 
 .voice-channel-user.voice-channel-user-speaking .voice-channel-user-avatar {
@@ -2405,6 +2530,135 @@ input, select {
   height: 100%;
   background: #3ba55c;
   transition: width 0.05s;
+}
+
+.user-settings-mic-level-segments {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  align-items: flex-end;
+}
+
+.user-settings-mic-level-segment {
+  flex: 1;
+  min-width: 4px;
+  height: 16px;
+  background: #202225;
+  border-radius: 2px;
+  transition: background 0.05s;
+}
+
+.user-settings-mic-level-segment.filled {
+  background: #3ba55c;
+}
+
+.user-settings-mic-test-hint {
+  font-size: 12px;
+  color: #72767d;
+  margin-top: 6px;
+}
+
+.user-settings-sensitivity {
+  margin-top: 16px;
+}
+
+.user-settings-sensitivity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.user-settings-sensitivity-label {
+  font-weight: 500;
+  color: #dcddde;
+  margin: 0;
+  flex: 1;
+}
+
+.user-settings-sensitivity-desc {
+  font-size: 13px;
+  color: #72767d;
+  margin: 8px 0 12px;
+  line-height: 1.4;
+}
+
+.user-settings-toggle {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.user-settings-toggle-track {
+  display: block;
+  width: 44px;
+  height: 24px;
+  background: #202225;
+  border-radius: 12px;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.user-settings-toggle.on .user-settings-toggle-track {
+  background: #5865f2;
+}
+
+.user-settings-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.user-settings-toggle.on .user-settings-toggle-thumb {
+  transform: translateX(20px);
+}
+
+.user-settings-sensitivity-slider-wrap {
+  margin-top: 8px;
+}
+
+.user-settings-sensitivity-level-bg {
+  display: flex;
+  gap: 2px;
+  padding: 4px 0;
+  align-items: flex-end;
+  min-height: 32px;
+}
+
+.user-settings-sensitivity-level-live {
+  margin-bottom: 8px;
+}
+
+.user-settings-sensitivity-segment {
+  flex: 1;
+  min-width: 4px;
+  height: 20px;
+  background: #202225;
+  border-radius: 2px;
+  transition: background 0.05s;
+}
+
+.user-settings-sensitivity-segment.filled {
+  background: #3ba55c;
+}
+
+.user-settings-sensitivity-segment.threshold {
+  background: #faa61a;
+  box-shadow: 0 0 0 1px #faa61a;
+}
+
+.user-settings-sensitivity-input {
+  width: 100%;
+  margin-top: 4px;
+  height: 6px;
+  accent-color: #5865f2;
 }
 
 .user-settings-help {
@@ -2925,17 +3179,28 @@ input, select {
 /* Выпадающее автодополнение */
 .chat-input-wrapper {
   position: relative;
-  padding: 0 16px 24px;
+  height: 64px;
+  min-height: 64px;
+  margin: 0 8px 8px 8px;
+  padding: 0;
+  display: flex;
+  align-items: stretch;
   min-width: 0;
   flex-shrink: 0;
-  border-top: 1px solid #202225;
-  background: #36393f;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .chat-input-form {
-  padding: 0;
+  flex: 1;
   display: flex;
+  align-items: stretch;
   gap: 0;
+  min-width: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .mention-popup {

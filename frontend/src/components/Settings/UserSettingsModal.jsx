@@ -10,7 +10,9 @@ const VOICE_STORAGE_KEYS = {
   inputDeviceId: 'rucord_voice_input_device',
   outputDeviceId: 'rucord_voice_output_device',
   inputGain: 'rucord_voice_input_gain',
-  outputGain: 'rucord_voice_output_gain'
+  outputGain: 'rucord_voice_output_gain',
+  sensitivityAuto: 'rucord_voice_sensitivity_auto',
+  sensitivityThreshold: 'rucord_voice_sensitivity_threshold'
 };
 
 function loadNumber(key, def) {
@@ -27,8 +29,17 @@ function loadString(key, def) {
   try { const v = localStorage.getItem(key); return v != null ? v : def; } catch (e) {}
   return def;
 }
+function loadBool(key, def) {
+  try { const v = localStorage.getItem(key); return v === 'true' ? true : v === 'false' ? false : def; } catch (e) {}
+  return def;
+}
+function saveBool(key, value) {
+  try { localStorage.setItem(key, value ? 'true' : 'false'); } catch (e) {}
+}
 
-export default function UserSettingsModal({ onClose, token }) {
+const SENSITIVITY_BARS = 24;
+
+export default function UserSettingsModal({ onClose, token, inVoiceChannel = false, onStartMicTest, onStopMicTest }) {
   const { user, refreshUser } = useAuth();
   const [tab, setTab] = useState('voice'); // 'voice' | 'profile'
   const [inputDevices, setInputDevices] = useState([]);
@@ -37,6 +48,9 @@ export default function UserSettingsModal({ onClose, token }) {
   const [outputDeviceId, setOutputDeviceId] = useState(() => loadString(VOICE_STORAGE_KEYS.outputDeviceId, ''));
   const [inputGain, setInputGain] = useState(() => loadNumber(VOICE_STORAGE_KEYS.inputGain, 1));
   const [outputGain, setOutputGain] = useState(() => loadNumber(VOICE_STORAGE_KEYS.outputGain, 1));
+  const [sensitivityAuto, setSensitivityAuto] = useState(() => loadBool(VOICE_STORAGE_KEYS.sensitivityAuto, true));
+  const [sensitivityThreshold, setSensitivityThreshold] = useState(() => Math.round(loadNumber(VOICE_STORAGE_KEYS.sensitivityThreshold, 25)));
+  const [sensitivityLevel, setSensitivityLevel] = useState(0);
   const [testingMic, setTestingMic] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [micTestError, setMicTestError] = useState('');
@@ -47,6 +61,9 @@ export default function UserSettingsModal({ onClose, token }) {
   const analyserRef = useRef(null);
   const streamRef = useRef(null);
   const animationRef = useRef(null);
+  const sensitivityStreamRef = useRef(null);
+  const sensitivityAnimationRef = useRef(null);
+  const loopbackAudioRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,28 +99,33 @@ export default function UserSettingsModal({ onClose, token }) {
   }, [outputDeviceId]);
 
   useEffect(() => {
+    saveBool(VOICE_STORAGE_KEYS.sensitivityAuto, sensitivityAuto);
+  }, [sensitivityAuto]);
+  useEffect(() => {
+    saveNumber(VOICE_STORAGE_KEYS.sensitivityThreshold, sensitivityThreshold);
+  }, [sensitivityThreshold]);
+
+  useEffect(() => {
     setUsernameEdit(user?.username || '');
   }, [user?.username]);
 
-  // Проверка микрофона: визуализация уровня
+  // Поток и индикатор уровня для вкладки «Голос» (чувствительность + проверка микрофона)
   useEffect(() => {
-    if (!testingMic) {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop());
-        streamRef.current = null;
+    if (tab !== 'voice') {
+      if (sensitivityStreamRef.current) {
+        sensitivityStreamRef.current.getTracks().forEach(t => t.stop());
+        sensitivityStreamRef.current = null;
       }
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-      setMicLevel(0);
-      setMicTestError('');
+      if (sensitivityAnimationRef.current) cancelAnimationFrame(sensitivityAnimationRef.current);
+      setSensitivityLevel(0);
       return;
     }
-    setMicTestError('');
     let stream = null;
     const start = async () => {
       try {
         const constraints = { audio: inputDeviceId ? { deviceId: { exact: inputDeviceId } } : true, video: false };
         stream = await navigator.mediaDevices.getUserMedia(constraints);
-        streamRef.current = stream;
+        sensitivityStreamRef.current = stream;
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const src = ctx.createMediaStreamSource(stream);
         const gainNode = ctx.createGain();
@@ -112,28 +134,139 @@ export default function UserSettingsModal({ onClose, token }) {
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
         gainNode.connect(analyser);
-        analyserRef.current = analyser;
         const data = new Uint8Array(analyser.frequencyBinCount);
-
         const tick = () => {
-          if (!analyserRef.current) return;
+          if (!sensitivityStreamRef.current) return;
           analyser.getByteFrequencyData(data);
           const avg = data.reduce((a, b) => a + b, 0) / data.length;
-          setMicLevel(Math.min(100, Math.round(avg * 2)));
-          animationRef.current = requestAnimationFrame(tick);
+          setSensitivityLevel(Math.min(100, Math.round(avg * 2)));
+          sensitivityAnimationRef.current = requestAnimationFrame(tick);
         };
         tick();
       } catch (e) {
-        setMicTestError(e.message || 'Нет доступа к микрофону');
-        setTestingMic(false);
+        setSensitivityLevel(0);
       }
     };
     start();
     return () => {
       if (stream) stream.getTracks().forEach(t => t.stop());
+      sensitivityStreamRef.current = null;
+      if (sensitivityAnimationRef.current) cancelAnimationFrame(sensitivityAnimationRef.current);
+    };
+  }, [tab, inputDeviceId, inputGain]);
+
+  // Прослушивание своего голоса (loopback) при проверке в голосовом канале
+  useEffect(() => {
+    if (!testingMic || !inVoiceChannel) {
+      if (loopbackAudioRef.current) {
+        try {
+          loopbackAudioRef.current.pause();
+          loopbackAudioRef.current.srcObject = null;
+          if (loopbackAudioRef.current.parentNode) loopbackAudioRef.current.parentNode.removeChild(loopbackAudioRef.current);
+        } catch (e) {}
+        loopbackAudioRef.current = null;
+      }
+      return;
+    }
+    const stream = sensitivityStreamRef.current;
+    if (stream) {
+      const audio = document.createElement('audio');
+      audio.autoplay = true;
+      audio.volume = 1;
+      audio.muted = false;
+      audio.setAttribute('playsinline', '');
+      audio.srcObject = stream;
+      document.body.appendChild(audio);
+      const play = () => audio.play().catch(() => {});
+      play();
+      loopbackAudioRef.current = audio;
+    }
+    return () => {
+      if (loopbackAudioRef.current) {
+        try {
+          loopbackAudioRef.current.pause();
+          loopbackAudioRef.current.srcObject = null;
+          if (loopbackAudioRef.current.parentNode) loopbackAudioRef.current.parentNode.removeChild(loopbackAudioRef.current);
+        } catch (e) {}
+        loopbackAudioRef.current = null;
+      }
+    };
+  }, [testingMic, inVoiceChannel]);
+
+  // Проверка микрофона: визуализация уровня (используем общий поток вкладки)
+  useEffect(() => {
+    if (!testingMic) {
+      if (streamRef.current && streamRef.current !== sensitivityStreamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+      streamRef.current = null;
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      setMicLevel(0);
+      setMicTestError('');
+      return;
+    }
+    if (inVoiceChannel && onStartMicTest) onStartMicTest();
+    setMicTestError('');
+    const stream = sensitivityStreamRef.current;
+    if (stream) {
+      streamRef.current = stream;
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ctx.createMediaStreamSource(stream);
+      const gainNode = ctx.createGain();
+      gainNode.gain.value = inputGain;
+      src.connect(gainNode);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      gainNode.connect(analyser);
+      analyserRef.current = analyser;
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        if (!analyserRef.current) return;
+        analyser.getByteFrequencyData(data);
+        const avg = data.reduce((a, b) => a + b, 0) / data.length;
+        setMicLevel(Math.min(100, Math.round(avg * 2)));
+        animationRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    } else {
+      let newStream = null;
+      (async () => {
+        try {
+          const constraints = { audio: inputDeviceId ? { deviceId: { exact: inputDeviceId } } : true, video: false };
+          newStream = await navigator.mediaDevices.getUserMedia(constraints);
+          streamRef.current = newStream;
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const src = ctx.createMediaStreamSource(newStream);
+          const gainNode = ctx.createGain();
+          gainNode.gain.value = inputGain;
+          src.connect(gainNode);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 256;
+          gainNode.connect(analyser);
+          analyserRef.current = analyser;
+          const data = new Uint8Array(analyser.frequencyBinCount);
+          const tick = () => {
+            if (!analyserRef.current) return;
+            analyser.getByteFrequencyData(data);
+            const avg = data.reduce((a, b) => a + b, 0) / data.length;
+            setMicLevel(Math.min(100, Math.round(avg * 2)));
+            animationRef.current = requestAnimationFrame(tick);
+          };
+          tick();
+        } catch (e) {
+          setMicTestError(e.message || 'Нет доступа к микрофону');
+          setTestingMic(false);
+        }
+      })();
+      return () => {
+        if (newStream) newStream.getTracks().forEach(t => t.stop());
+        if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      };
+    }
+    return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [testingMic, inputDeviceId, inputGain]);
+  }, [testingMic, inputDeviceId, inputGain, inVoiceChannel, onStartMicTest]);
 
   const handleInputDeviceChange = (e) => {
     const id = e.target.value;
@@ -275,22 +408,86 @@ export default function UserSettingsModal({ onClose, token }) {
                     onChange={e => setOutputGain(parseFloat(e.target.value))}
                   />
                 </div>
+                <div className="user-settings-field user-settings-sensitivity">
+                  <div className="user-settings-sensitivity-header">
+                    <label className="user-settings-sensitivity-label">Автоматически определять чувствительность ввода</label>
+                    <button
+                      type="button"
+                      className={`user-settings-toggle ${sensitivityAuto ? 'on' : ''}`}
+                      onClick={() => setSensitivityAuto(!sensitivityAuto)}
+                      aria-pressed={sensitivityAuto}
+                    >
+                      <span className="user-settings-toggle-track"><span className="user-settings-toggle-thumb" /></span>
+                    </button>
+                  </div>
+                  <p className="user-settings-sensitivity-desc">Порог срабатывания индикатора речи в голосовом канале. При включённой автонастройке порог подбирается автоматически; при выключении — настраивается ползунком.</p>
+                  {!sensitivityAuto && (
+                    <div className="user-settings-field">
+                      <label>Порог чувствительности (когда срабатывает индикатор речи)</label>
+                      <div className="user-settings-sensitivity-slider-wrap">
+                        <div className="user-settings-sensitivity-level-bg">
+                          {Array.from({ length: SENSITIVITY_BARS }, (_, i) => {
+                            const filled = (i / (SENSITIVITY_BARS - 1)) * 100 <= sensitivityLevel;
+                            const segCenter = (i / (SENSITIVITY_BARS - 1)) * 100;
+                            const isThreshold = Math.abs(segCenter - sensitivityThreshold) <= 100 / SENSITIVITY_BARS;
+                            return (
+                              <div
+                                key={i}
+                                className={`user-settings-sensitivity-segment ${filled ? 'filled' : ''} ${isThreshold ? 'threshold' : ''}`}
+                              />
+                            );
+                          })}
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={sensitivityThreshold}
+                          onChange={e => setSensitivityThreshold(Number(e.target.value))}
+                          className="user-settings-sensitivity-input"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {sensitivityAuto && (
+                    <div className="user-settings-sensitivity-level-bg user-settings-sensitivity-level-live">
+                      {Array.from({ length: SENSITIVITY_BARS }, (_, i) => {
+                        const filled = (i / (SENSITIVITY_BARS - 1)) * 100 <= sensitivityLevel;
+                        return <div key={i} className={`user-settings-sensitivity-segment ${filled ? 'filled' : ''}`} />;
+                      })}
+                    </div>
+                  )}
+                </div>
                 <div className="user-settings-field">
                   <button
                     type="button"
                     className="user-settings-test-mic-btn"
-                    onClick={() => setTestingMic(!testingMic)}
+                    onClick={() => {
+                      if (testingMic) {
+                        setTestingMic(false);
+                        if (inVoiceChannel && onStopMicTest) onStopMicTest();
+                      } else {
+                        if (inVoiceChannel && onStartMicTest) onStartMicTest();
+                        setTestingMic(true);
+                      }
+                    }}
                   >
                     {testingMic ? 'Остановить проверку' : 'Проверка микрофона'}
                   </button>
-                  {testingMic && (
-                    <>
-                      <div className="user-settings-mic-level">
-                        <div className="user-settings-mic-level-bar" style={{ width: `${micLevel}%` }} />
-                      </div>
-                      {micTestError && <p className="user-settings-error">{micTestError}</p>}
-                    </>
+                  {inVoiceChannel && (
+                    <p className="user-settings-mic-test-hint">В голосовом канале при проверке микрофон и наушники будут отключены, включится прослушивание своего голоса.</p>
                   )}
+                  {testingMic && (
+                    <div className="user-settings-mic-level user-settings-mic-level-segments">
+                      {Array.from({ length: SENSITIVITY_BARS }, (_, i) => (
+                        <div
+                          key={i}
+                          className={`user-settings-mic-level-segment ${(i / (SENSITIVITY_BARS - 1)) * 100 <= micLevel ? 'filled' : ''}`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {testingMic && micTestError && <p className="user-settings-error">{micTestError}</p>}
                 </div>
                 <p className="user-settings-help">Нужна помощь с голосом или видео? Ознакомьтесь с руководством по устранению неполадок.</p>
               </>

@@ -14,8 +14,7 @@ export default function ServerList({
   user,
   mentionsByServer = {},
   onOpenDM,
-  dmUnread = 0,
-  onOpenUserSettings
+  dmUnread = 0
 }) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -66,17 +65,6 @@ export default function ServerList({
       <div className="server-icon join-server" onClick={onJoinServer} title="Присоединиться по коду"><span className="server-icon-char">↗</span></div>
 
       <div className="server-list-bottom">
-        {onOpenUserSettings && (
-          <button
-            type="button"
-            className="logout-btn settings-btn"
-            onClick={onOpenUserSettings}
-            title="Настройки пользователя"
-          >
-            <span className="logout-btn-icon">⚙</span>
-            <span className="logout-btn-text">Настройки</span>
-          </button>
-        )}
         <button
           type="button"
           className="logout-btn"

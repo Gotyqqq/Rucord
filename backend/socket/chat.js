@@ -14,6 +14,7 @@ let ioInstance = null;
 const onlineUsers = new Map(); // userId -> { status, lastActivity, socketId }
 const slowmodeCooldowns = new Map(); // `${userId}_${channelId}` -> timestamp
 const voiceMutedMap = new Map(); // `${channelId}_${userId}` -> boolean (микрофон выключен)
+const voiceDeafenedMap = new Map(); // `${channelId}_${userId}` -> boolean (звук в наушниках выключен)
 
 // Определяем, какие сокеты сейчас в комнате (чтобы не слать пинг тем, кто уже в канале)
 function getSocketsInRoom(roomName) {
@@ -383,7 +384,8 @@ function setupSocket(io) {
           const s = ioInstance.sockets.sockets.get(sid);
           if (s && s.user) {
             const muted = voiceMutedMap.get(`${channelId}_${s.user.id}`) ?? false;
-            participants.push({ userId: s.user.id, username: s.user.username, muted });
+            const deafened = voiceDeafenedMap.get(`${channelId}_${s.user.id}`) ?? false;
+            participants.push({ userId: s.user.id, username: s.user.username, muted, deafened });
           }
         }
       }
@@ -405,10 +407,12 @@ function setupSocket(io) {
         if (r.startsWith('voice_')) {
           const prevChannelId = r.replace('voice_', '');
           voiceMutedMap.delete(`${prevChannelId}_${socket.user.id}`);
+          voiceDeafenedMap.delete(`${prevChannelId}_${socket.user.id}`);
           socket.leave(r);
         }
       }
       voiceMutedMap.set(`${channelId}_${socket.user.id}`, false);
+      voiceDeafenedMap.set(`${channelId}_${socket.user.id}`, false);
       socket.join(roomName);
       const room = ioInstance.sockets.adapter.rooms.get(roomName);
       const participants = [];
@@ -417,12 +421,13 @@ function setupSocket(io) {
           const s = ioInstance.sockets.sockets.get(sid);
           if (s && s.user && s.user.id !== socket.user.id) {
             const muted = voiceMutedMap.get(`${channelId}_${s.user.id}`) ?? false;
-            participants.push({ userId: s.user.id, username: s.user.username, muted });
+            const deafened = voiceDeafenedMap.get(`${channelId}_${s.user.id}`) ?? false;
+            participants.push({ userId: s.user.id, username: s.user.username, muted, deafened });
           }
         }
       }
       socket.emit('voice_participants', { channelId, participants });
-      socket.to(roomName).emit('voice_participant_joined', { channelId, userId: socket.user.id, username: socket.user.username, muted: false });
+      socket.to(roomName).emit('voice_participant_joined', { channelId, userId: socket.user.id, username: socket.user.username, muted: false, deafened: false });
       broadcastVoiceRoster(channelId, channel.server_id);
     });
 
@@ -434,9 +439,18 @@ function setupSocket(io) {
       broadcastVoiceRoster(channelId, channel.server_id);
     });
 
+    socket.on('voice_deafened', ({ channelId, deafened }) => {
+      const channel = db.prepare('SELECT id, server_id FROM channels WHERE id = ? AND type = ?').get(channelId, 'voice');
+      if (!channel) return;
+      voiceDeafenedMap.set(`${channelId}_${socket.user.id}`, !!deafened);
+      ioInstance.to(`voice_${channelId}`).emit('voice_deafened', { userId: socket.user.id, deafened: !!deafened });
+      broadcastVoiceRoster(channelId, channel.server_id);
+    });
+
     socket.on('leave_voice_channel', (channelId) => {
       const channel = db.prepare('SELECT server_id FROM channels WHERE id = ?').get(channelId);
       voiceMutedMap.delete(`${channelId}_${socket.user.id}`);
+      voiceDeafenedMap.delete(`${channelId}_${socket.user.id}`);
       socket.leave(`voice_${channelId}`);
       socket.to(`voice_${channelId}`).emit('voice_participant_left', { channelId, userId: socket.user.id });
       if (channel) broadcastVoiceRoster(channelId, channel.server_id);
@@ -464,7 +478,8 @@ function setupSocket(io) {
             const s = ioInstance.sockets.sockets.get(sid);
             if (s && s.user) {
               const muted = voiceMutedMap.get(`${ch.id}_${s.user.id}`) ?? false;
-              rosters[ch.id].push({ userId: s.user.id, username: s.user.username, muted });
+              const deafened = voiceDeafenedMap.get(`${ch.id}_${s.user.id}`) ?? false;
+              rosters[ch.id].push({ userId: s.user.id, username: s.user.username, muted, deafened });
             }
           }
         }
@@ -488,6 +503,7 @@ function setupSocket(io) {
         if (room.startsWith('voice_')) {
           const channelId = room.replace('voice_', '');
           voiceMutedMap.delete(`${channelId}_${socket.user.id}`);
+          voiceDeafenedMap.delete(`${channelId}_${socket.user.id}`);
           const ch = db.prepare('SELECT server_id FROM channels WHERE id = ?').get(channelId);
           ioInstance.to(room).emit('voice_participant_left', { channelId, userId: socket.user.id });
           if (ch) broadcastVoiceRoster(channelId, ch.server_id);

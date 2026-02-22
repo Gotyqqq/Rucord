@@ -81,17 +81,57 @@ export default function App() {
   const [masterPreviewMode, setMasterPreviewMode] = useState(false);
   const [currentVoiceChannelId, setCurrentVoiceChannelId] = useState(null);
   const [voiceParticipants, setVoiceParticipants] = useState([]);
+  const [micTestMode, setMicTestMode] = useState(false);
   const [voiceRosters, setVoiceRosters] = useState({});
   const [voiceSpeakingUsers, setVoiceSpeakingUsers] = useState({});
+
+  const CHANNEL_WIDTH_MIN = 200;
+  const CHANNEL_WIDTH_MAX = 480;
+  const [channelListWidth, setChannelListWidth] = useState(() => {
+    try {
+      const w = parseInt(localStorage.getItem('rucord_channel_width'), 10);
+      if (w >= CHANNEL_WIDTH_MIN && w <= CHANNEL_WIDTH_MAX) return w;
+    } catch (e) {}
+    return 240;
+  });
 
   const selectedChannelIdRef = useRef(null);
   const selectedServerIdRef = useRef(null);
   const currentVoiceChannelIdRef = useRef(null);
+  const resizeStartXRef = useRef(0);
+  const resizeStartWidthRef = useRef(240);
 
   useEffect(() => { selectedChannelIdRef.current = selectedChannelId; }, [selectedChannelId]);
   useEffect(() => { currentVoiceChannelIdRef.current = currentVoiceChannelId; }, [currentVoiceChannelId]);
   useEffect(() => { selectedServerIdRef.current = selectedServerId; }, [selectedServerId]);
   useEffect(() => { saveToStorage('rucord_mentions', mentionData); }, [mentionData]);
+  useEffect(() => {
+    try { localStorage.setItem('rucord_channel_width', String(channelListWidth)); } catch (e) {}
+  }, [channelListWidth]);
+
+  const handleChannelResizeStart = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    resizeStartXRef.current = e.clientX;
+    resizeStartWidthRef.current = channelListWidth;
+    const onMove = (e2) => {
+      const dx = e2.clientX - resizeStartXRef.current;
+      setChannelListWidth((w) => {
+        const next = Math.max(CHANNEL_WIDTH_MIN, Math.min(CHANNEL_WIDTH_MAX, resizeStartWidthRef.current + dx));
+        return next;
+      });
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
 
   const mentionsByServer = useMemo(() => {
     const result = {};
@@ -244,11 +284,11 @@ export default function App() {
     socket.on('voice_participants', ({ channelId, participants }) => {
       if (channelId === currentVoiceChannelIdRef.current) setVoiceParticipants(participants || []);
     });
-    socket.on('voice_participant_joined', ({ channelId, userId, username, muted }) => {
+    socket.on('voice_participant_joined', ({ channelId, userId, username, muted, deafened }) => {
       if (channelId !== currentVoiceChannelIdRef.current) return;
       setVoiceParticipants(prev => {
         if (prev.some(p => p.userId === userId)) return prev;
-        return [...prev, { userId, username, muted: muted ?? false }];
+        return [...prev, { userId, username, muted: muted ?? false, deafened: deafened ?? false }];
       });
     });
     socket.on('voice_participant_left', ({ channelId, userId }) => {
@@ -256,7 +296,9 @@ export default function App() {
       setVoiceParticipants(prev => prev.filter(p => p.userId !== userId));
     });
     socket.on('voice_roster_update', ({ channelId, participants }) => {
-      setVoiceRosters(prev => ({ ...prev, [channelId]: participants || [] }));
+      const list = participants || [];
+      setVoiceRosters(prev => ({ ...prev, [channelId]: list }));
+      if (channelId === currentVoiceChannelIdRef.current) setVoiceParticipants(list);
     });
     socket.on('voice_speaking', ({ userId, speaking }) => {
       setVoiceSpeakingUsers(prev => ({ ...prev, [userId]: speaking }));
@@ -573,30 +615,47 @@ export default function App() {
         mentionsByServer={mentionsByServer}
         onOpenDM={() => { setDmTargetUserId(null); setDmTargetUsername(''); setShowDM(true); }}
         dmUnread={dmUnreadTotal}
-        onOpenUserSettings={() => setShowUserSettings(true)}
       />
-      <ChannelList
-        server={currentServer} channels={channels}
-        selectedChannelId={selectedChannelId}
-        onSelectChannel={setSelectedChannelId}
-        onCreateChannel={handleCreateChannel}
-        onCreateVoiceChannel={handleCreateVoiceChannel}
-        onDeleteChannel={handleDeleteChannel}
-        onJoinVoiceChannel={handleJoinVoiceChannel}
-        currentVoiceChannelId={currentVoiceChannelId}
-        voiceRosters={voiceRosters}
-        voiceSpeakingUsers={voiceSpeakingUsers}
-        onOpenSettings={() => setShowSettings(true)}
-        onLeaveServer={handleLeaveServer}
-        onShowInvite={handleShowInvite}
-        canManageChannels={canManageChannels}
-        isOwner={isOwnerFlag} canOpenSettings={canOpenSettings}
-        mentionsByChannel={mentionsByChannel}
-        onOpenChannelSettings={handleOpenChannelSettings}
-        isMaster={user?.is_master}
-        allServers={user?.is_master ? servers : []}
-        onSelectServerPreview={handleSelectServerPreview}
-        currentUsername={user?.username}
+      <div
+        className="channel-list-wrapper"
+        style={{
+          width: channelListWidth,
+          minWidth: CHANNEL_WIDTH_MIN,
+          maxWidth: CHANNEL_WIDTH_MAX,
+          flexShrink: 0
+        }}
+      >
+        <ChannelList
+          server={currentServer} channels={channels}
+          selectedChannelId={selectedChannelId}
+          onSelectChannel={setSelectedChannelId}
+          onCreateChannel={handleCreateChannel}
+          onCreateVoiceChannel={handleCreateVoiceChannel}
+          onDeleteChannel={handleDeleteChannel}
+          onJoinVoiceChannel={handleJoinVoiceChannel}
+          currentVoiceChannelId={currentVoiceChannelId}
+          voiceRosters={voiceRosters}
+          voiceSpeakingUsers={voiceSpeakingUsers}
+          onOpenSettings={() => setShowSettings(true)}
+          onLeaveServer={handleLeaveServer}
+          onShowInvite={handleShowInvite}
+          canManageChannels={canManageChannels}
+          isOwner={isOwnerFlag} canOpenSettings={canOpenSettings}
+          mentionsByChannel={mentionsByChannel}
+          onOpenChannelSettings={handleOpenChannelSettings}
+          isMaster={user?.is_master}
+          allServers={user?.is_master ? servers : []}
+          onSelectServerPreview={handleSelectServerPreview}
+          currentUsername={user?.username}
+        />
+        <div className="app-bottom-spacer" aria-hidden />
+      </div>
+      <div
+        className="channel-resizer"
+        onMouseDown={handleChannelResizeStart}
+        title="Перетащите для изменения ширины"
+        role="separator"
+        aria-orientation="vertical"
       />
       {masterPreviewMode && currentServer && (
         <div className="master-preview-banner">
@@ -618,23 +677,22 @@ export default function App() {
         onCreateServer={() => setShowCreateServer(true)}
         onJoinServer={() => setShowJoinServer(true)}
       />
-      {currentVoiceChannelId && (() => {
-        const voiceChannel = channels.find(c => c.id === currentVoiceChannelId);
-        if (!voiceChannel) return null;
-        return (
-          <VoicePanel
-            channel={voiceChannel}
-            participants={voiceParticipants}
-            currentUserId={user?.id}
-            currentUsername={user?.username}
-            user={user}
-            members={members}
-            socket={getSocket()}
-            onLeave={handleLeaveVoiceChannel}
-            onOpenSettings={() => setShowUserSettings(true)}
-          />
-        );
-      })()}
+      {user && (
+        <VoicePanel
+          channel={currentVoiceChannelId ? channels.find(c => c.id === currentVoiceChannelId) || null : null}
+          participants={voiceParticipants}
+          currentUserId={user?.id}
+          currentUsername={user?.username}
+          user={user}
+          members={members}
+          socket={getSocket()}
+          onLeave={handleLeaveVoiceChannel}
+          onOpenSettings={() => setShowUserSettings(true)}
+          channelListWidth={channelListWidth}
+          micTestMode={micTestMode}
+          onMicTestModeChange={setMicTestMode}
+        />
+      )}
       {currentServer && (
         <MemberList
           members={members} server={currentServer}
@@ -713,8 +771,14 @@ export default function App() {
       {/* User settings (gear) */}
       {showUserSettings && (
         <UserSettingsModal
-          onClose={() => setShowUserSettings(false)}
+          onClose={() => {
+            setMicTestMode(false);
+            setShowUserSettings(false);
+          }}
           token={token}
+          inVoiceChannel={!!currentVoiceChannelId}
+          onStartMicTest={() => setMicTestMode(true)}
+          onStopMicTest={() => setMicTestMode(false)}
         />
       )}
 
