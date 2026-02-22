@@ -47,6 +47,7 @@ export default function VoicePanel({
   const sourceNodeRef = useRef(null);
   const gainNodeRef = useRef(null);
   const analyserRef = useRef(null);
+  const gateNodeRef = useRef(null);
   const destinationRef = useRef(null);
   const peersRef = useRef({});
   const pendingCandidatesRef = useRef({});
@@ -121,15 +122,20 @@ export default function VoicePanel({
     analyser.smoothingTimeConstant = 0.8;
     const destination = ctx.createMediaStreamDestination();
 
+    const gate = ctx.createGain();
+    gate.gain.value = 1;
+
     source.connect(gain);
-    gain.connect(destination);
     gain.connect(analyser);
+    gain.connect(gate);
+    gate.connect(destination);
 
     rawStreamRef.current = stream;
     processedStreamRef.current = destination.stream;
     sourceNodeRef.current = source;
     gainNodeRef.current = gain;
     analyserRef.current = analyser;
+    gateNodeRef.current = gate;
     destinationRef.current = destination;
 
     return { rawStream: stream, processedStream: destination.stream };
@@ -143,6 +149,7 @@ export default function VoicePanel({
     sourceNodeRef.current = null;
     gainNodeRef.current = null;
     analyserRef.current = null;
+    gateNodeRef.current = null;
     destinationRef.current = null;
   }, []);
 
@@ -357,16 +364,21 @@ export default function VoicePanel({
     };
   }, [micTestMode]);
 
-  // ---- Voice Activity Detection ----
+  // ---- Voice Activity Detection + Noise Gate ----
   useEffect(() => {
     if (!hasLocalStream || !socket || !channel?.id || muted || micTestMode) return;
     const analyser = analyserRef.current;
+    const gate = gateNodeRef.current;
     if (!analyser) return;
+
+    // Open gate initially
+    if (gate) gate.gain.value = 1;
 
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     let lastSpeaking = false;
     let silentSince = 0;
     const SILENT_MS = 250;
+    const RAMP_MS = 0.015; // 15ms ramp to avoid clicks
 
     const check = () => {
       if (!rawStreamRef.current || rawStreamRef.current.getAudioTracks().every(t => !t.enabled)) return;
@@ -378,6 +390,11 @@ export default function VoicePanel({
         silentSince = 0;
         if (!lastSpeaking) {
           lastSpeaking = true;
+          // Open the noise gate — audio flows to peers
+          if (gate) {
+            gate.gain.cancelScheduledValues(audioCtxRef.current.currentTime);
+            gate.gain.linearRampToValueAtTime(1, audioCtxRef.current.currentTime + RAMP_MS);
+          }
           socket.emit('voice_speaking', { channelId: channel.id, speaking: true });
         }
       } else if (lastSpeaking) {
@@ -385,6 +402,11 @@ export default function VoicePanel({
         if (Date.now() - silentSince >= SILENT_MS) {
           lastSpeaking = false;
           silentSince = 0;
+          // Close the noise gate — silence to peers
+          if (gate) {
+            gate.gain.cancelScheduledValues(audioCtxRef.current.currentTime);
+            gate.gain.linearRampToValueAtTime(0, audioCtxRef.current.currentTime + RAMP_MS);
+          }
           socket.emit('voice_speaking', { channelId: channel.id, speaking: false });
         }
       }
@@ -392,7 +414,11 @@ export default function VoicePanel({
 
     const id = setInterval(check, 100);
     speakingIntervalRef.current = id;
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      // Re-open gate on cleanup so audio isn't stuck muted
+      if (gate) gate.gain.value = 1;
+    };
   }, [channel?.id, socket, muted, hasLocalStream, micTestMode]);
 
   // ---- Speaking indicators from others ----
