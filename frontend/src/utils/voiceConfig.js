@@ -16,7 +16,8 @@ export const VOICE_KEYS = {
   sensitivityAuto: 'rucord_voice_sensitivity_auto',
   sensitivityThreshold: 'rucord_voice_sensitivity_threshold',
   muted: 'rucord_voice_panel_muted',
-  deafened: 'rucord_voice_panel_deafened'
+  deafened: 'rucord_voice_panel_deafened',
+  noiseSuppression: 'rucord_voice_noise_suppression'
 };
 
 export function loadNumber(key, def) {

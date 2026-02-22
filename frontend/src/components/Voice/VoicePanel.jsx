@@ -9,6 +9,11 @@ import {
   loadNumber, loadString, loadBool, saveBool,
   setAudioBitrate, getSpeakThreshold
 } from '../../utils/voiceConfig';
+// Worklet URL: dev — Vite serves source; prod — fixed asset from build
+const getNoiseSuppressorWorkletUrl = () =>
+  import.meta.env.DEV
+    ? new URL('../../audio/noise-suppressor-worklet.js', import.meta.url).href
+    : `${import.meta.env.BASE_URL || '/'}assets/noise-suppressor-worklet.js`;
 
 function formatDuration(seconds) {
   const h = Math.floor(seconds / 3600);
@@ -49,6 +54,7 @@ export default function VoicePanel({
   const analyserRef = useRef(null);
   const gateNodeRef = useRef(null);
   const destinationRef = useRef(null);
+  const noiseSuppressorNodeRef = useRef(null);
   const peersRef = useRef({});
   const pendingCandidatesRef = useRef({});
   const joinTimeRef = useRef(Date.now());
@@ -127,7 +133,21 @@ export default function VoicePanel({
 
     source.connect(gain);
     gain.connect(analyser);
-    gain.connect(gate);
+    const useNoiseSuppression = loadBool(VOICE_KEYS.noiseSuppression, false);
+    let noiseNode = null;
+    if (useNoiseSuppression) {
+      try {
+        await ctx.audioWorklet.addModule(getNoiseSuppressorWorkletUrl());
+        noiseNode = new AudioWorkletNode(ctx, 'NoiseSuppressorWorklet');
+        gain.connect(noiseNode);
+        noiseNode.connect(gate);
+      } catch (err) {
+        console.warn('RNNoise worklet failed, using pipeline without noise suppression:', err);
+        gain.connect(gate);
+      }
+    } else {
+      gain.connect(gate);
+    }
     gate.connect(destination);
 
     rawStreamRef.current = stream;
@@ -137,6 +157,7 @@ export default function VoicePanel({
     analyserRef.current = analyser;
     gateNodeRef.current = gate;
     destinationRef.current = destination;
+    noiseSuppressorNodeRef.current = noiseNode;
 
     return { rawStream: stream, processedStream: destination.stream };
   }, [inputGain]);
@@ -145,6 +166,8 @@ export default function VoicePanel({
     if (rawStreamRef.current) rawStreamRef.current.getTracks().forEach(t => t.stop());
     rawStreamRef.current = null;
     processedStreamRef.current = null;
+    if (noiseSuppressorNodeRef.current) { try { noiseSuppressorNodeRef.current.disconnect(); } catch (e) {} }
+    noiseSuppressorNodeRef.current = null;
     if (sourceNodeRef.current) { try { sourceNodeRef.current.disconnect(); } catch (e) {} }
     sourceNodeRef.current = null;
     gainNodeRef.current = null;

@@ -22,6 +22,7 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
   const [outputDeviceId, setOutputDeviceId] = useState(() => loadString(VOICE_KEYS.outputDeviceId, ''));
   const [inputGain, setInputGain] = useState(() => loadNumber(VOICE_KEYS.inputGain, 1));
   const [outputGain, setOutputGain] = useState(() => loadNumber(VOICE_KEYS.outputGain, 1));
+  const [noiseSuppression, setNoiseSuppression] = useState(() => loadBool(VOICE_KEYS.noiseSuppression, false));
   const [sensitivityAuto, setSensitivityAuto] = useState(() => loadBool(VOICE_KEYS.sensitivityAuto, true));
   const [sensitivityThreshold, setSensitivityThreshold] = useState(() => Math.round(loadNumber(VOICE_KEYS.sensitivityThreshold, 25)));
   const [sensitivityLevel, setSensitivityLevel] = useState(0);
@@ -81,6 +82,10 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
       notifyStorageChange(VOICE_KEYS.outputDeviceId);
     }
   }, [outputDeviceId]);
+  useEffect(() => {
+    saveBool(VOICE_KEYS.noiseSuppression, noiseSuppression);
+    notifyStorageChange(VOICE_KEYS.noiseSuppression);
+  }, [noiseSuppression]);
 
   useEffect(() => {
     saveBool(VOICE_KEYS.sensitivityAuto, sensitivityAuto);
@@ -417,6 +422,20 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
                     value={outputGain}
                     onChange={e => setOutputGain(parseFloat(e.target.value))}
                   />
+                </div>
+                <div className="user-settings-field user-settings-sensitivity">
+                  <div className="user-settings-sensitivity-header">
+                    <label className="user-settings-sensitivity-label">Шумоподавление (RNNoise)</label>
+                    <button
+                      type="button"
+                      className={`user-settings-toggle ${noiseSuppression ? 'on' : ''}`}
+                      onClick={() => setNoiseSuppression(!noiseSuppression)}
+                      aria-pressed={noiseSuppression}
+                    >
+                      <span className="user-settings-toggle-track"><span className="user-settings-toggle-thumb" /></span>
+                    </button>
+                  </div>
+                  <p className="user-settings-sensitivity-desc">Уменьшает фоновый шум микрофона (как в Discord). Для применения переподключитесь к голосовому каналу.</p>
                 </div>
                 <div className="user-settings-field user-settings-sensitivity">
                   <div className="user-settings-sensitivity-header">
