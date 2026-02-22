@@ -1196,7 +1196,7 @@ export default function Chat({
                         }
                       }}
                       title="Выбрать эмодзи"
-                    ><span className="message-action-emoji-icon">☺</span></button>
+                    ><svg className="message-action-emoji-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm-3-3a2 2 0 1 1 6 0 2 2 0 0 1-6 0z"/></svg></button>
                     {canEdit && (
                       <button className="message-action-btn" onClick={() => startEdit(msg)} title="Редактировать">✏️</button>
                     )}
