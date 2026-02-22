@@ -24,6 +24,7 @@ import UserProfilePopup from './components/UserProfile/UserProfilePopup';
 import DMPanel from './components/DM/DMPanel';
 import UserContextMenu from './components/ContextMenu/UserContextMenu';
 import VoicePanel from './components/Voice/VoicePanel';
+import UserSettingsModal from './components/Settings/UserSettingsModal';
 
 function loadFromStorage(key) {
   try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : {}; }
@@ -75,6 +76,7 @@ export default function App() {
   const [showJoinServer, setShowJoinServer] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showUserSettings, setShowUserSettings] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [masterPreviewMode, setMasterPreviewMode] = useState(false);
   const [currentVoiceChannelId, setCurrentVoiceChannelId] = useState(null);
@@ -242,11 +244,11 @@ export default function App() {
     socket.on('voice_participants', ({ channelId, participants }) => {
       if (channelId === currentVoiceChannelIdRef.current) setVoiceParticipants(participants || []);
     });
-    socket.on('voice_participant_joined', ({ channelId, userId, username }) => {
+    socket.on('voice_participant_joined', ({ channelId, userId, username, muted }) => {
       if (channelId !== currentVoiceChannelIdRef.current) return;
       setVoiceParticipants(prev => {
         if (prev.some(p => p.userId === userId)) return prev;
-        return [...prev, { userId, username }];
+        return [...prev, { userId, username, muted: muted ?? false }];
       });
     });
     socket.on('voice_participant_left', ({ channelId, userId }) => {
@@ -624,9 +626,11 @@ export default function App() {
             participants={voiceParticipants}
             currentUserId={user?.id}
             currentUsername={user?.username}
+            user={user}
             members={members}
             socket={getSocket()}
             onLeave={handleLeaveVoiceChannel}
+            onOpenSettings={() => setShowUserSettings(true)}
           />
         );
       })()}
@@ -702,6 +706,14 @@ export default function App() {
           onSendQuickDM={handleSendQuickDM}
           onlineStatus={onlineStatuses[profileTarget.user_id] || 'offline'}
           currentUserId={user.id}
+        />
+      )}
+
+      {/* User settings (gear) */}
+      {showUserSettings && (
+        <UserSettingsModal
+          onClose={() => setShowUserSettings(false)}
+          token={token}
         />
       )}
 

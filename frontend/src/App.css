@@ -1946,79 +1946,186 @@ input, select {
   right: 240px;
   background: #2f3136;
   border-top: 1px solid #202225;
-  padding: 10px 16px;
+  padding: 12px 16px;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   z-index: 50;
 }
 
-.voice-panel-info {
+.voice-panel-top {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.voice-panel-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.voice-panel-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3ba55c;
+}
+
+.voice-panel-status-text {
+  font-size: 13px;
+  color: #3ba55c;
+  font-weight: 500;
+}
+
+.voice-panel-channel-name {
+  font-size: 13px;
+  color: #dcddde;
+}
+
+.voice-panel-top-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-panel-audio-indicator {
+  font-size: 14px;
+  color: #dcddde;
+  letter-spacing: 2px;
+}
+
+.voice-panel-end-call {
+  background: #ed4245;
+  border: none;
+  color: #fff;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-panel-end-call:hover {
+  background: #c03537;
+}
+
+.voice-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-panel-ctrl-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #4f545c;
+  border: none;
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-panel-ctrl-btn:hover {
+  background: #5d6269;
+}
+
+.voice-panel-user-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 0;
+  border-top: 1px solid #202225;
+}
+
+.voice-panel-user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.voice-panel-user-info {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
 }
 
-.voice-panel-channel {
+.voice-panel-username {
+  font-size: 14px;
   font-weight: 600;
   color: #fff;
-  font-size: 14px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.voice-panel-timer {
-  font-size: 13px;
-  color: #3ba55c;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
+.voice-panel-user-status {
+  font-size: 12px;
+  color: #72767d;
+}
+
+.voice-panel-user-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-panel-mic-btn,
+.voice-panel-headphone-btn,
+.voice-panel-gear-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #4f545c;
+  border: none;
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.voice-panel-mic-btn:hover,
+.voice-panel-headphone-btn:hover,
+.voice-panel-gear-btn:hover {
+  background: #5d6269;
+}
+
+.voice-panel-mic-btn.muted {
+  background: #ed4245;
+}
+
+.voice-panel-mic-btn.muted:hover {
+  background: #c03537;
+}
+
+.voice-panel-mic-arrow {
+  font-size: 10px;
+  opacity: 0.9;
 }
 
 .voice-panel-mic-error {
   color: #faa61a;
   font-size: 16px;
   cursor: help;
-}
-
-.voice-panel-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.voice-btn {
-  padding: 8px 14px;
-  border: none;
-  border-radius: 4px;
-  background: #4f545c;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.voice-btn:hover {
-  background: #5d6269;
-}
-
-.voice-btn-muted {
-  background: #ed4245;
-}
-
-.voice-btn-muted:hover {
-  background: #c03537;
-}
-
-.voice-btn-leave {
-  background: #ed4245;
-}
-
-.voice-btn-leave:hover {
-  background: #c03537;
 }
 
 .voice-panel audio {
@@ -2071,6 +2178,14 @@ input, select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.voice-channel-user-muted {
+  font-size: 14px;
+  flex-shrink: 0;
+  opacity: 0.9;
 }
 
 .voice-channel-user.voice-channel-user-speaking .voice-channel-user-avatar {
@@ -2106,6 +2221,225 @@ input, select {
 
 .settings-modal {
   max-width: 660px;
+}
+
+/* User settings modal (gear) */
+.user-settings-modal {
+  max-width: 660px;
+  max-height: 85vh;
+  position: relative;
+}
+
+.user-settings-modal .modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+}
+
+.user-settings-layout {
+  display: flex;
+  min-height: 360px;
+}
+
+.user-settings-sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  background: #2f3136;
+  padding: 20px 0;
+  border-right: 1px solid #202225;
+}
+
+.user-settings-profile-preview {
+  padding: 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-settings-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.user-settings-avatar.big {
+  width: 80px;
+  height: 80px;
+  font-size: 32px;
+}
+
+.user-settings-username {
+  font-weight: 600;
+  color: #fff;
+  font-size: 14px;
+}
+
+.user-settings-edit-profile {
+  background: none;
+  color: #00a8fc;
+  font-size: 13px;
+  padding: 0;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.user-settings-edit-profile:hover {
+  text-decoration: underline;
+}
+
+.user-settings-nav-section {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8e9297;
+  text-transform: uppercase;
+  padding: 16px 16px 8px;
+}
+
+.user-settings-nav-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  color: #b9bbbe;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.user-settings-nav-item:hover {
+  color: #dcddde;
+}
+
+.user-settings-nav-item.active {
+  color: #fff;
+  background: #36393f;
+}
+
+.user-settings-content {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.user-settings-title {
+  font-size: 18px;
+  color: #fff;
+  margin-bottom: 20px;
+}
+
+.user-settings-field {
+  margin-bottom: 20px;
+}
+
+.user-settings-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b9bbbe;
+  margin-bottom: 8px;
+}
+
+.user-settings-field select,
+.user-settings-field input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  background: #202225;
+  border: none;
+  border-radius: 4px;
+  color: #dcddde;
+  font-size: 14px;
+}
+
+.user-settings-field input[type="range"] {
+  width: 100%;
+  height: 6px;
+  accent-color: #5865f2;
+}
+
+.user-settings-test-mic-btn {
+  padding: 10px 20px;
+  background: #5865f2;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.user-settings-test-mic-btn:hover {
+  background: #4752c4;
+}
+
+.user-settings-mic-level {
+  height: 24px;
+  background: #202225;
+  border-radius: 4px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.user-settings-mic-level-bar {
+  height: 100%;
+  background: #3ba55c;
+  transition: width 0.05s;
+}
+
+.user-settings-help {
+  font-size: 13px;
+  color: #72767d;
+  margin-top: 16px;
+}
+
+.user-settings-avatar-upload {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.user-settings-avatar-upload input[type="file"] {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #dcddde;
+}
+
+.user-settings-upload-btn,
+.user-settings-save-btn {
+  padding: 8px 16px;
+  background: #5865f2;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.user-settings-upload-btn:hover,
+.user-settings-save-btn:hover {
+  background: #4752c4;
+}
+
+.user-settings-upload-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.user-settings-error {
+  color: #ed4245;
+  font-size: 13px;
+  margin-top: 8px;
 }
 
 .modal-header {

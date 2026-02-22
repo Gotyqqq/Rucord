@@ -16,8 +16,11 @@ export default function VoicePanel({
   channel,
   participants,
   currentUserId,
+  currentUsername,
+  user,
   socket,
-  onLeave
+  onLeave,
+  onOpenSettings
 }) {
   const [muted, setMuted] = useState(false);
   const [connecting, setConnecting] = useState(true);
@@ -285,30 +288,66 @@ export default function VoicePanel({
 
   const toggleMute = () => {
     if (!localStreamRef.current) return;
-    localStreamRef.current.getTracks().forEach(t => { t.enabled = muted; });
-    setMuted(!muted);
+    const next = !muted;
+    localStreamRef.current.getTracks().forEach(t => { t.enabled = !next; });
+    setMuted(next);
+    if (socket && channel?.id) socket.emit('voice_muted', { channelId: channel.id, muted: next });
   };
+
+  const getInitial = (name) => name ? name.charAt(0).toUpperCase() : '?';
+  const getAvatarColor = (name) => {
+    const colors = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55c', '#faa61a', '#e67e22'];
+    let hash = 0;
+    for (let i = 0; i < (name || '').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length];
+  };
+  const avatarUrl = user?.avatar_url ? (user.avatar_url.startsWith('http') ? user.avatar_url : (window.__API_BASE__ || '') + user.avatar_url) : null;
 
   return (
     <div className="voice-panel">
-      <div className="voice-panel-info">
-        <span className="voice-panel-channel">🔊 {channel.name}</span>
-        <span className="voice-panel-timer">{formatDuration(duration)}</span>
+      <div className="voice-panel-top">
+        <div className="voice-panel-status">
+          <span className="voice-panel-status-dot" />
+          <span className="voice-panel-status-text">Голосовая связь подключена</span>
+        </div>
+        <div className="voice-panel-channel-name">{channel.name}</div>
+        <div className="voice-panel-top-right">
+          <span className="voice-panel-audio-indicator" title="Уровень звука">▌▌▌</span>
+          <button type="button" className="voice-panel-end-call" onClick={onLeave} title="Завершить звонок">📞</button>
+        </div>
+      </div>
+      <div className="voice-panel-controls">
+        <button type="button" className="voice-panel-ctrl-btn" title="Видео выключено">📷</button>
+        <button type="button" className="voice-panel-ctrl-btn" title="Демонстрация экрана">🖥</button>
+        <button type="button" className="voice-panel-ctrl-btn" title="Сетка">⊞</button>
+        <button type="button" className="voice-panel-ctrl-btn" title="Динамик">📢</button>
+      </div>
+      <div className="voice-panel-user-row">
+        <div
+          className="voice-panel-user-avatar"
+          style={avatarUrl ? { backgroundImage: `url(${avatarUrl})`, backgroundColor: 'transparent' } : { backgroundColor: getAvatarColor(currentUsername || user?.username) }}
+        >
+          {!avatarUrl && getInitial(currentUsername || user?.username)}
+        </div>
+        <div className="voice-panel-user-info">
+          <span className="voice-panel-username">{currentUsername || user?.username || 'Вы'}</span>
+          <span className="voice-panel-user-status">Невидимый</span>
+        </div>
+        <div className="voice-panel-user-actions">
+          <button
+            type="button"
+            className={`voice-panel-mic-btn ${muted ? 'muted' : ''}`}
+            onClick={toggleMute}
+            title={muted ? 'Включить микрофон' : 'Выключить микрофон'}
+          >
+            {muted ? '🔇' : '🎤'}
+            <span className="voice-panel-mic-arrow">▾</span>
+          </button>
+          <button type="button" className="voice-panel-headphone-btn" title="Устройство вывода">🎧▾</button>
+          <button type="button" className="voice-panel-gear-btn" onClick={() => onOpenSettings?.()} title="Настройки пользователя">⚙</button>
+        </div>
       </div>
       {micError && <span className="voice-panel-mic-error" title={micError}>⚠</span>}
-      <div className="voice-panel-actions">
-        <button
-          type="button"
-          className={`voice-btn ${muted ? 'voice-btn-muted' : ''}`}
-          onClick={toggleMute}
-          title={muted ? 'Включить микрофон' : 'Выключить микрофон'}
-        >
-          {muted ? '🔇' : '🎤'}
-        </button>
-        <button type="button" className="voice-btn voice-btn-leave" onClick={onLeave} title="Покинуть канал">
-          Покинуть
-        </button>
-      </div>
       {Object.entries(remoteStreams).map(([userId, stream]) => (
         <audio
           key={userId}

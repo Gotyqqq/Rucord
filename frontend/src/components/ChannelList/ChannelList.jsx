@@ -206,6 +206,9 @@ export default function ChannelList({
                       {getInitial(p.username)}
                     </div>
                     <span className="voice-channel-user-name">{p.username}</span>
+                    {p.muted && (
+                      <span className="voice-channel-user-muted" title="Микрофон выключен">🔇</span>
+                    )}
                   </div>
                 ))}
               </div>

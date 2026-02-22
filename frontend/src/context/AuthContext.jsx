@@ -58,8 +58,17 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  // Обновить данные пользователя (после смены аватара/имени)
+  const refreshUser = async () => {
+    if (!token) return;
+    try {
+      const data = await api.get('/api/auth/me', token);
+      if (data.user) setUser(data.user);
+    } catch (e) { console.error(e); }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
