@@ -451,7 +451,8 @@ function setupSocket(io) {
     socket.on('voice_speaking', ({ channelId, speaking }) => {
       const channel = db.prepare('SELECT id FROM channels WHERE id = ? AND type = ?').get(channelId, 'voice');
       if (!channel) return;
-      socket.to(`voice_${channelId}`).emit('voice_speaking', {
+      // Рассылаем всей комнате, включая отправителя — чтобы у говорящего тоже появлялся зелёный кружок
+      ioInstance.to(`voice_${channelId}`).emit('voice_speaking', {
         userId: socket.user.id,
         username: socket.user.username,
         speaking: !!speaking

@@ -32,6 +32,7 @@ export default function VoicePanel({
   const speakingIntervalRef = useRef(null);
   const analyserRef = useRef(null);
   const audioContextRef = useRef(null);
+  const audioElsRef = useRef({});
 
   // Запрос микрофона сразу при входе в канал (первым делом)
   useEffect(() => {
@@ -150,9 +151,10 @@ export default function VoicePanel({
       });
       if (localStream) localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       pc.ontrack = (e) => {
-        if (e.streams[0]) {
-          remoteStreamsMap[userId] = e.streams[0];
-          setRemoteStreams(prev => ({ ...prev, [userId]: e.streams[0] }));
+        const stream = e.streams[0] || e.track ? new MediaStream([e.track]) : null;
+        if (stream) {
+          remoteStreamsMap[userId] = stream;
+          setRemoteStreams(prev => ({ ...prev, [userId]: stream }));
           setConnecting(false);
         }
       };
@@ -208,7 +210,8 @@ export default function VoicePanel({
         const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
         localStreamRef.current.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current));
         pc.ontrack = (e) => {
-          if (e.streams[0]) setRemoteStreams(prev => ({ ...prev, [p.userId]: e.streams[0] }));
+          const stream = e.streams[0] || (e.track ? new MediaStream([e.track]) : null);
+          if (stream) setRemoteStreams(prev => ({ ...prev, [p.userId]: stream }));
         };
         pc.onicecandidate = (e) => {
           if (e.candidate) socket.emit('voice_signal', { toUserId: p.userId, signal: { type: 'ice', candidate: e.candidate } });
@@ -220,6 +223,15 @@ export default function VoicePanel({
       }
     });
   }, [channel?.id, participants, currentUserId, socket, hasLocalStream]);
+
+  // Принудительное воспроизведение удалённого звука (обход политики autoplay в части браузеров)
+  useEffect(() => {
+    const els = audioElsRef.current;
+    Object.keys(els).forEach(userId => {
+      const el = els[userId];
+      if (el && el.srcObject && el.paused) el.play().catch(() => {});
+    });
+  }, [remoteStreams]);
 
   if (!channel) return null;
 
@@ -250,7 +262,21 @@ export default function VoicePanel({
         </button>
       </div>
       {Object.entries(remoteStreams).map(([userId, stream]) => (
-        <audio key={userId} ref={el => { if (el) el.srcObject = stream; }} autoPlay playsInline />
+        <audio
+          key={userId}
+          ref={el => {
+            if (!el) {
+              delete audioElsRef.current[userId];
+              return;
+            }
+            audioElsRef.current[userId] = el;
+            el.srcObject = stream;
+            el.muted = false;
+            el.play().catch(() => {});
+          }}
+          autoPlay
+          playsInline
+        />
       ))}
     </div>
   );
