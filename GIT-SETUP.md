@@ -32,7 +32,7 @@
 
 | Поле | Что указать |
 |------|-------------|
-| **Repository name** | Например: `rucord` или `dota-mini`. Латинские буквы, цифры, дефис. |
+| **Repository name** | Например: `rucord`. Латинские буквы, цифры, дефис. |
 | **Description** | По желанию: «Rucord — чат в стиле Discord». |
 | **Public** | Оставь **Public** (репо будет виден всем, код можно не показывать никому, если не дашь ссылку). |
 | **Add a README file** | **Не ставь галочку** — у тебя уже есть проект, не нужен пустой README от GitHub. |
@@ -62,7 +62,7 @@
 ### 3.1. Открыть папку проекта
 
 ```bash
-cd c:\Users\ulyan\dota-mini
+cd c:\Users\ulyan\rucord
 ```
 
 ### 3.2. Инициализировать Git (если ещё не делал)
@@ -71,7 +71,7 @@ cd c:\Users\ulyan\dota-mini
 git init
 ```
 
-Должно появиться: `Initialized empty Git repository in c:/Users/ulyan/dota-mini/.git/`
+Должно появиться: `Initialized empty Git repository in c:/Users/ulyan/rucord/.git/`
 
 ### 3.3. Добавить удалённый репозиторий
 
@@ -156,7 +156,7 @@ git push -u origin main
 - **После изменений в коде** (сам или с моей помощью в Cursor):
 
 ```bash
-cd c:\Users\ulyan\dota-mini
+cd c:\Users\ulyan\rucord
 git add .
 git commit -m "Кратко что сделано"
 git push origin main

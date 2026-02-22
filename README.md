@@ -36,7 +36,7 @@ npm --version
 Откройте PowerShell и перейдите в папку проекта:
 
 ```
-cd "C:\Users\ulyan\dota-mini"
+cd "C:\Users\ulyan\rucord"
 ```
 
 ### Шаг 2: Установить зависимости бэкенда
@@ -64,7 +64,7 @@ npm install -g windows-build-tools
 Откройте **второй** терминал (новое окно PowerShell) и выполните:
 
 ```
-cd "C:\Users\ulyan\dota-mini\frontend"
+cd "C:\Users\ulyan\rucord\frontend"
 npm install
 ```
 
@@ -172,7 +172,7 @@ npm run dev
 ## Структура проекта
 
 ```
-dota-mini/
+rucord/
 ├── backend/                 ← Серверная часть
 │   ├── server.js            — Главный файл сервера
 │   ├── database.js          — База данных (SQLite)

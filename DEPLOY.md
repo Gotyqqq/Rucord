@@ -11,7 +11,7 @@
 Если проект ещё не в git или не запушен:
 
 ```bash
-cd c:\Users\ulyan\dota-mini
+cd c:\Users\ulyan\rucord
 git init
 git add .
 git commit -m "Initial: Rucord"
