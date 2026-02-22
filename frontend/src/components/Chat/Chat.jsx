@@ -4,6 +4,8 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import EmojiPicker from 'emoji-picker-react';
+import { Smile, Send, Paperclip, Pencil, Trash2 } from 'lucide-react';
 import { api } from '../../utils/api';
 import { getSocket } from '../../utils/socket';
 import { getRecentEmojis, addRecentEmoji, EMOJI_ALL } from '../../utils/emoji';
@@ -369,7 +371,7 @@ export default function Chat({
     }
   }, [channel?.id]);
 
-  // Сохраняем позицию прокрутки при скролле (до смены канала DOM уже другой — сохранять при уходе нельзя)
+  // Сохраняем позицию прокрутки при скролле и при уходе с канала (в cleanup), чтобы при возврате восстановить
   useEffect(() => {
     const el = messagesContainerRef.current;
     const cid = channel?.id;
@@ -381,7 +383,10 @@ export default function Chat({
       if (isAtBottomRef.current) setUnreadBelowCount(0);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    return () => {
+      if (el && cid != null) scrollPositionsRef.current[cid] = el.scrollTop;
+      el.removeEventListener('scroll', onScroll);
+    };
   }, [channel?.id]);
 
   useEffect(() => {
@@ -399,7 +404,8 @@ export default function Chat({
       messageCountByChannelRef.current[channel.id] = messages.length;
       restoredScrollForChannelRef.current = channel.id;
       delete scrollPositionsRef.current[channel.id];
-      requestAnimationFrame(() => { el.scrollTop = saved; });
+      const restore = () => { el.scrollTop = saved; };
+      requestAnimationFrame(() => requestAnimationFrame(restore));
       return;
     }
     messageCountByChannelRef.current[channel.id] = messages.length;
@@ -1028,12 +1034,22 @@ export default function Chat({
       </div>
 
       {reactionPickerMessageId != null && reactionPickerAnchor && createPortal(
+        (() => {
+          const GAP = 8;
+          const PICKER_ESTIMATED_HEIGHT = 220;
+          const spaceAbove = reactionPickerAnchor.top;
+          const showAbove = typeof window !== 'undefined' && spaceAbove >= PICKER_ESTIMATED_HEIGHT + GAP;
+          return (
         <div
           ref={reactionPickerPopoverRef}
           className="message-reaction-picker message-reaction-picker-popover message-reaction-picker-anchored"
           style={{
             left: reactionPickerAnchor.left,
-            bottom: typeof window !== 'undefined' ? window.innerHeight - reactionPickerAnchor.top + 8 : 0,
+            ...(typeof window !== 'undefined'
+              ? showAbove
+                ? { bottom: window.innerHeight - reactionPickerAnchor.top + GAP }
+                : { top: reactionPickerAnchor.bottom + GAP }
+              : { bottom: 0 }),
             transform: 'none'
           }}
         >
@@ -1045,7 +1061,9 @@ export default function Chat({
               onMouseDown={(e) => { e.preventDefault(); handleReactionAdd(reactionPickerMessageId, emoji); }}
             >{emoji}</button>
           ))}
-        </div>,
+        </div>
+          );
+        })(),
         document.body
       )}
 
@@ -1196,12 +1214,12 @@ export default function Chat({
                         }
                       }}
                       title="Выбрать эмодзи"
-                    ><span className="message-action-emoji-icon">☺</span></button>
+                    ><Smile className="message-action-emoji-icon" size={16} /></button>
                     {canEdit && (
-                      <button className="message-action-btn" onClick={() => startEdit(msg)} title="Редактировать">✏️</button>
+                      <button className="message-action-btn" onClick={() => startEdit(msg)} title="Редактировать"><Pencil size={14} /></button>
                     )}
                     {canDelete && (
-                      <button type="button" className="message-action-btn message-action-delete" onClick={() => setMessageToDelete(msg)} title="Удалить">🗑</button>
+                      <button type="button" className="message-action-btn message-action-delete" onClick={() => setMessageToDelete(msg)} title="Удалить"><Trash2 size={14} /></button>
                     )}
                   </div>
                 )}
@@ -1288,19 +1306,16 @@ export default function Chat({
         )}
 
         {!readOnly && showEmojiPicker && (
-          <div ref={emojiPickerRef} className="chat-emoji-picker chat-emoji-picker-single">
-            <div className="chat-emoji-picker-section-title">Популярные у вас</div>
-            <div className="chat-emoji-picker-recent">
-              {(recentEmojis.length ? recentEmojis : EMOJI_ALL.slice(0, 12)).map((emoji, idx) => (
-                <button key={`recent-${emoji}-${idx}`} type="button" className="chat-emoji-picker-btn" onMouseDown={(e) => { e.preventDefault(); insertEmoji(emoji); }}>{emoji}</button>
-              ))}
-            </div>
-            <div className="chat-emoji-picker-section-title">Все эмодзи</div>
-            <div className="chat-emoji-picker-grid">
-              {EMOJI_ALL.map((emoji, idx) => (
-                <button key={`all-${emoji}-${idx}`} type="button" className="chat-emoji-picker-btn" onMouseDown={(e) => { e.preventDefault(); insertEmoji(emoji); }}>{emoji}</button>
-              ))}
-            </div>
+          <div ref={emojiPickerRef} className="chat-emoji-picker chat-emoji-picker-wrapper">
+            <EmojiPicker
+              onEmojiClick={(data) => insertEmoji(data.emoji)}
+              theme="dark"
+              width="100%"
+              height={360}
+              emojiStyle="twitter"
+              searchDisabled={false}
+              previewConfig={{ showPreview: false }}
+            />
           </div>
         )}
 
@@ -1322,9 +1337,9 @@ export default function Chat({
         {!readOnly && (
           <form onSubmit={handleSubmit} className="chat-input-form">
             <input type="file" ref={fileInputRef} className="chat-file-input-hidden" accept="image/*,.pdf,video/mp4,video/webm,video/quicktime,audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/mp4,audio/x-m4a" multiple onChange={handleFileSelect} />
-            <button type="button" className="chat-toolbar-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading || slowmodeWait > 0} title="Прикрепить файл">📎</button>
-            <button type="button" ref={emojiToolbarBtnRef} className="chat-toolbar-btn" onClick={() => setShowEmojiPicker(prev => !prev)} title="Эмодзи">😀</button>
-            <button type="button" className="chat-toolbar-btn" onClick={() => setShowGifPicker(true)} title="GIF">GIF</button>
+            <button type="button" className="chat-toolbar-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading || slowmodeWait > 0} title="Прикрепить файл"><Paperclip size={20} /></button>
+            <button type="button" ref={emojiToolbarBtnRef} className="chat-toolbar-btn" onClick={() => setShowEmojiPicker(prev => !prev)} title="Эмодзи"><Smile size={20} /></button>
+            <button type="button" className="chat-toolbar-btn chat-toolbar-btn-gif" onClick={() => setShowGifPicker(true)} title="GIF">GIF</button>
             <input
               ref={inputRef}
               type="text"
@@ -1337,7 +1352,7 @@ export default function Chat({
               autoFocus
               disabled={slowmodeWait > 0}
             />
-            <button type="submit" className="chat-send-btn" disabled={(!messageText.trim() && pendingAttachments.length === 0) || slowmodeWait > 0}>➤</button>
+            <button type="submit" className="chat-send-btn" disabled={(!messageText.trim() && pendingAttachments.length === 0) || slowmodeWait > 0} title="Отправить"><Send size={18} /></button>
           </form>
         )}
       </div>

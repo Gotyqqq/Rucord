@@ -3,6 +3,8 @@
 // ============================================================
 
 import React, { useState, useRef, useEffect } from 'react';
+import { ChevronDown, Mail, Settings, DoorOpen, Hash, Plus, Mic, MicOff, X } from 'lucide-react';
+import { HeadphonesOff } from '../ui/HeadphonesOff';
 
 export default function ChannelList({
   server, channels, selectedChannelId, onSelectChannel,
@@ -97,25 +99,25 @@ export default function ChannelList({
       <div className="channel-list-header" ref={dropdownRef}>
         <button className="server-header-btn" onClick={() => setShowDropdown(!showDropdown)}>
           <span className="server-name-text">{server.name}</span>
-          <span className={`dropdown-arrow ${showDropdown ? 'open' : ''}`}>▾</span>
+          <ChevronDown className={`dropdown-arrow ${showDropdown ? 'open' : ''}`} size={18} />
         </button>
         {showDropdown && (
           <div className="server-dropdown">
             {onShowInvite && (
               <button className="dropdown-item" onClick={() => { onShowInvite(); setShowDropdown(false); }}>
-                <span className="dropdown-icon">✉</span> Пригласить людей
+                <Mail className="dropdown-icon" size={18} /> Пригласить людей
               </button>
             )}
             {canOpenSettings && (
               <button className="dropdown-item" onClick={() => { onOpenSettings(); setShowDropdown(false); }}>
-                <span className="dropdown-icon">⚙</span> Настройки сервера
+                <Settings className="dropdown-icon" size={18} /> Настройки сервера
               </button>
             )}
             {!isOwner && (
               <>
                 <div className="dropdown-separator" />
                 <button className="dropdown-item danger" onClick={() => { onLeaveServer(); setShowDropdown(false); }}>
-                  <span className="dropdown-icon">🚪</span> Покинуть сервер
+                  <DoorOpen className="dropdown-icon" size={18} /> Покинуть сервер
                 </button>
               </>
             )}
@@ -126,7 +128,7 @@ export default function ChannelList({
       <div className="channel-category">
         <span className="channel-category-name">Текстовые каналы</span>
         {canManageChannels && (
-          <button className="channel-add-btn" onClick={() => setShowCreateForm(!showCreateForm)} title="Создать канал">+</button>
+          <button className="channel-add-btn" onClick={() => setShowCreateForm(!showCreateForm)} title="Создать канал"><Plus size={18} /></button>
         )}
       </div>
 
@@ -148,15 +150,15 @@ export default function ChannelList({
             className={`channel-item ${selectedChannelId === channel.id ? 'active' : ''}`}
             onClick={() => onSelectChannel(channel.id)}
           >
-            <span className="channel-hash">#</span>
+            <Hash className="channel-hash channel-hash-icon" size={18} />
             <span className="channel-name">{channel.name}</span>
             {channel.slowmode > 0 && <span className="channel-slowmode-icon" title={`Slowmode: ${channel.slowmode}с`}>🕐</span>}
             {mentions > 0 && <span className="channel-mention-badge">{mentions}</span>}
             {canManageChannels && (
-              <button className="channel-settings-btn-icon" onClick={(e) => { e.stopPropagation(); onOpenChannelSettings && onOpenChannelSettings(channel); }} title="Настроить канал">⚙</button>
+              <button className="channel-settings-btn-icon" onClick={(e) => { e.stopPropagation(); onOpenChannelSettings && onOpenChannelSettings(channel); }} title="Настроить канал"><Settings size={14} /></button>
             )}
             {canManageChannels && (
-              <button className="channel-delete-btn" onClick={(e) => { e.stopPropagation(); onDeleteChannel(channel.id); }} title="Удалить канал">×</button>
+              <button className="channel-delete-btn" onClick={(e) => { e.stopPropagation(); onDeleteChannel(channel.id); }} title="Удалить канал"><X size={16} /></button>
             )}
           </div>
         );
@@ -165,7 +167,7 @@ export default function ChannelList({
       <div className="channel-category" style={{ marginTop: '16px' }}>
         <span className="channel-category-name">Голосовые каналы</span>
         {canManageChannels && onCreateVoiceChannel && (
-          <button className="channel-add-btn" onClick={() => setShowCreateVoiceForm(!showCreateVoiceForm)} title="Создать голосовой канал">+</button>
+          <button className="channel-add-btn" onClick={() => setShowCreateVoiceForm(!showCreateVoiceForm)} title="Создать голосовой канал"><Plus size={18} /></button>
         )}
       </div>
       {showCreateVoiceForm && (
@@ -186,10 +188,10 @@ export default function ChannelList({
               className={`channel-item voice-channel ${isActive ? 'active' : ''}`}
               onClick={() => onJoinVoiceChannel && onJoinVoiceChannel(channel)}
             >
-              <span className="channel-hash">🔊</span>
+              <Mic className="channel-hash channel-hash-icon channel-voice-icon" size={18} />
               <span className="channel-name">{channel.name}</span>
               {canManageChannels && (
-                <button className="channel-delete-btn" onClick={(e) => { e.stopPropagation(); onDeleteChannel(channel.id); }} title="Удалить канал">×</button>
+                <button className="channel-delete-btn" onClick={(e) => { e.stopPropagation(); onDeleteChannel(channel.id); }} title="Удалить канал"><X size={16} /></button>
               )}
             </div>
             {roster.length > 0 && (
@@ -208,16 +210,12 @@ export default function ChannelList({
                     <span className="voice-channel-user-name">{p.username}</span>
                     {p.muted && (
                       <span className="voice-channel-user-muted" title="Микрофон выключен" aria-hidden>
-                        <svg className="icon-mic-off" viewBox="0 0 16 16" fill="currentColor" width="16" height="16">
-                          <path d="M8 1a2 2 0 0 1 2 2v4a2 2 0 0 1-4 0V3a2 2 0 0 1 2-2z" />
-                          <path d="M5 7v2a3 3 0 0 0 6 0V7h1v2a4 4 0 0 1-8 0V7h1z" />
-                          <path className="icon-mic-off-line" d="M2 2L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                        </svg>
+                        <MicOff className="icon-mic-off" size={14} />
                       </span>
                     )}
                     {p.deafened && (
                       <span className="voice-channel-user-deafened" title="Звук выключен" aria-hidden>
-                        <span className="icon-headphone-off">🎧</span>
+                        <HeadphonesOff className="icon-headphone-off" size={14} />
                       </span>
                     )}
                   </div>

@@ -4,6 +4,8 @@
 // ============================================================
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Mic, MicOff, Headphones, Settings, X } from 'lucide-react';
+import { HeadphonesOff } from '../ui/HeadphonesOff';
 import {
   ICE_SERVERS, AUDIO_BITRATE, VOICE_KEYS,
   loadNumber, loadString, loadBool, saveBool,
@@ -673,7 +675,7 @@ export default function VoicePanel({
           {inVoice && (
             <div className="voice-panel-leave-row">
               <button type="button" className="voice-panel-leave-btn" onClick={onLeave} title="Покинуть голосовой канал">
-                <span className="voice-panel-leave-icon" aria-hidden>×</span>
+                <X className="voice-panel-leave-icon" size={18} aria-hidden />
                 <span className="voice-panel-leave-text">Покинуть</span>
               </button>
             </div>
@@ -686,13 +688,9 @@ export default function VoicePanel({
               title={muted ? 'Включить микрофон' : 'Выключить микрофон'}
             >
               {muted ? (
-                <svg className="voice-panel-mic-icon voice-panel-mic-icon-off" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden>
-                  <path d="M8 1a2 2 0 0 1 2 2v4a2 2 0 0 1-4 0V3a2 2 0 0 1 2-2z" />
-                  <path d="M5 7v2a3 3 0 0 0 6 0V7h1v2a4 4 0 0 1-8 0V7h1z" />
-                  <path d="M2 2L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-                </svg>
+                <MicOff className="voice-panel-mic-icon voice-panel-mic-icon-off" size={20} aria-hidden />
               ) : (
-                <span className="voice-panel-mic-icon">🎤</span>
+                <Mic className="voice-panel-mic-icon" size={20} aria-hidden />
               )}
               <span className="voice-panel-mic-arrow">▾</span>
             </button>
@@ -702,10 +700,16 @@ export default function VoicePanel({
               onClick={toggleDeafen}
               title={deafened ? 'Включить звук' : 'Выключить звук'}
             >
-              <span className={`voice-panel-headphone-icon ${deafened ? 'voice-panel-headphone-icon-off' : ''}`}>🎧</span>
+              {deafened ? (
+                <HeadphonesOff className="voice-panel-headphone-icon voice-panel-headphone-icon-off" size={20} aria-hidden />
+              ) : (
+                <Headphones className="voice-panel-headphone-icon" size={20} aria-hidden />
+              )}
               <span className="voice-panel-mic-arrow">▾</span>
             </button>
-            <button type="button" className="voice-panel-gear-btn" onClick={() => onOpenSettings?.()} title="Настройки пользователя">⚙</button>
+            <button type="button" className="voice-panel-gear-btn" onClick={() => onOpenSettings?.()} title="Настройки пользователя">
+              <Settings size={20} aria-hidden />
+            </button>
           </div>
         </div>
       </div>

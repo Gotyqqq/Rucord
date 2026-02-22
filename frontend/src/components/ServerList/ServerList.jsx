@@ -3,6 +3,7 @@
 // ============================================================
 
 import React, { useState } from 'react';
+import { Home, MessageCircle, Plus, LogIn, LogOut } from 'lucide-react';
 
 export default function ServerList({
   servers,
@@ -33,10 +34,10 @@ export default function ServerList({
         className={`server-icon home-icon ${!selectedServerId ? 'active' : ''}`}
         onClick={() => onSelectServer(null)}
         title="Главная"
-      ><span className="server-icon-char">R</span></div>
+      ><Home className="server-icon-svg" size={24} strokeWidth={2.5} /></div>
 
       <div className="server-icon-wrapper">
-        <div className="server-icon dm-icon" onClick={onOpenDM} title="Личные сообщения"><span className="server-icon-char">💬</span></div>
+        <div className="server-icon dm-icon" onClick={onOpenDM} title="Личные сообщения"><MessageCircle className="server-icon-svg" size={22} strokeWidth={2.5} /></div>
         {dmUnread > 0 && <span className="mention-badge">{dmUnread > 99 ? '99+' : dmUnread}</span>}
       </div>
 
@@ -50,7 +51,7 @@ export default function ServerList({
               className={`server-icon ${selectedServerId === server.id ? 'active' : ''}`}
               onClick={() => onSelectServer(server.id)}
               title={server.name}
-              style={{ backgroundColor: selectedServerId === server.id ? '#5865f2' : getColor(server.name) }}
+              style={{ backgroundColor: selectedServerId === server.id ? 'var(--accent)' : getColor(server.name) }}
             >
               <span className="server-icon-char">{getInitial(server.name)}</span>
             </div>
@@ -61,8 +62,8 @@ export default function ServerList({
         );
       })}
 
-      <div className="server-icon add-server" onClick={onCreateServer} title="Создать сервер"><span className="server-icon-char">+</span></div>
-      <div className="server-icon join-server" onClick={onJoinServer} title="Присоединиться по коду"><span className="server-icon-char">↗</span></div>
+      <div className="server-icon add-server" onClick={onCreateServer} title="Создать сервер"><Plus className="server-icon-svg" size={28} strokeWidth={2.5} /></div>
+      <div className="server-icon join-server" onClick={onJoinServer} title="Присоединиться по коду"><LogIn className="server-icon-svg" size={22} strokeWidth={2.5} /></div>
 
       <div className="server-list-bottom">
         <button
@@ -71,7 +72,7 @@ export default function ServerList({
           onClick={() => setShowLogoutConfirm(true)}
           title={`Выйти из аккаунта (${user?.username})`}
         >
-          <span className="logout-btn-icon">⏻</span>
+          <LogOut className="logout-btn-icon" size={22} strokeWidth={2.5} />
           <span className="logout-btn-text">Выйти</span>
           {user?.username && <span className="logout-btn-username">{user.username}</span>}
         </button>
