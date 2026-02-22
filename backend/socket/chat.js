@@ -458,8 +458,9 @@ function setupSocket(io) {
 
     socket.on('voice_signal', (data) => {
       const { toUserId, signal } = data;
-      if (!toUserId || !signal) return;
-      ioInstance.to(`user_${toUserId}`).emit('voice_signal', {
+      if (toUserId == null || toUserId === '' || !signal) return;
+      const targetRoom = `user_${Number(toUserId)}`;
+      ioInstance.to(targetRoom).emit('voice_signal', {
         fromUserId: socket.user.id,
         fromUsername: socket.user.username,
         signal

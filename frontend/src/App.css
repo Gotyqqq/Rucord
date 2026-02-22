@@ -2219,6 +2219,25 @@ input, select {
   cursor: help;
 }
 
+.voice-panel-enable-sound-btn {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #5865f2;
+  background: transparent;
+  border: 1px solid #5865f2;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.voice-panel-enable-sound-btn:hover {
+  background: #36393f;
+  color: #7289da;
+}
+
 .voice-panel audio {
   display: none;
 }

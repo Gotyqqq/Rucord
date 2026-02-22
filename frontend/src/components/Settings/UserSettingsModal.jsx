@@ -123,7 +123,12 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
     let stream = null;
     const start = async () => {
       try {
-        const constraints = { audio: inputDeviceId ? { deviceId: { exact: inputDeviceId } } : true, video: false };
+        const constraints = {
+          audio: inputDeviceId
+            ? { deviceId: { exact: inputDeviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+            : { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+          video: false
+        };
         stream = await navigator.mediaDevices.getUserMedia(constraints);
         sensitivityStreamRef.current = stream;
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -232,7 +237,12 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
       let newStream = null;
       (async () => {
         try {
-          const constraints = { audio: inputDeviceId ? { deviceId: { exact: inputDeviceId } } : true, video: false };
+          const constraints = {
+            audio: inputDeviceId
+              ? { deviceId: { exact: inputDeviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+              : { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+            video: false
+          };
           newStream = await navigator.mediaDevices.getUserMedia(constraints);
           streamRef.current = newStream;
           const ctx = new (window.AudioContext || window.webkitAudioContext)();

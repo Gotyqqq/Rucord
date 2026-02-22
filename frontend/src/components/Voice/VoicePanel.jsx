@@ -240,13 +240,25 @@ export default function VoicePanel({
       });
     };
 
+    const iceServers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' }
+    ];
+    const pendingCandidates = {};
+    const flushIceCandidates = async (pc, userId) => {
+      const pending = pendingCandidates[userId];
+      if (!pending || pending.length === 0) return;
+      for (const c of pending) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (err) {}
+      }
+      pendingCandidates[userId] = [];
+    };
+
     const getOrCreatePeer = (userId) => {
       if (peers[userId]) return peers[userId];
       const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' }
-        ],
+        iceServers,
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require'
       });
@@ -261,25 +273,34 @@ export default function VoicePanel({
       };
       pc.onicecandidate = (e) => {
         if (e.candidate)
-          socket.emit('voice_signal', { toUserId: userId, signal: { type: 'ice', candidate: e.candidate } });
+          socket.emit('voice_signal', { toUserId: Number(userId), signal: { type: 'ice', candidate: e.candidate } });
       };
       peers[userId] = pc;
       peersRef.current[userId] = pc;
+      if (!pendingCandidates[userId]) pendingCandidates[userId] = [];
       return pc;
     };
 
     const handleSignal = async ({ fromUserId, signal }) => {
-      if (fromUserId === currentUserId) return;
-      const pc = getOrCreatePeer(fromUserId);
+      const fromId = Number(fromUserId);
+      if (fromId === currentUserId) return;
+      const pc = getOrCreatePeer(fromId);
       if (signal.type === 'offer') {
         await pc.setRemoteDescription(new RTCSessionDescription(signal));
+        await flushIceCandidates(pc, fromId);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        socket.emit('voice_signal', { toUserId: fromUserId, signal: pc.localDescription });
+        socket.emit('voice_signal', { toUserId: fromId, signal: pc.localDescription });
       } else if (signal.type === 'answer') {
         await pc.setRemoteDescription(new RTCSessionDescription(signal));
+        await flushIceCandidates(pc, fromId);
       } else if (signal.candidate) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch (e) {}
+        if (pc.remoteDescription) {
+          try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch (e) {}
+        } else {
+          if (!pendingCandidates[fromId]) pendingCandidates[fromId] = [];
+          pendingCandidates[fromId].push(signal.candidate);
+        }
       }
     };
 
@@ -287,14 +308,15 @@ export default function VoicePanel({
 
     (async () => {
       for (const p of participants) {
-        if (p.userId === currentUserId) continue;
-        const pc = getOrCreatePeer(p.userId);
+        const peerId = Number(p.userId);
+        if (peerId === currentUserId) continue;
+        const pc = getOrCreatePeer(peerId);
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         trySetAudioBitrate(pc);
-        socket.emit('voice_signal', { toUserId: p.userId, signal: pc.localDescription });
+        socket.emit('voice_signal', { toUserId: peerId, signal: pc.localDescription });
       }
-      if (participants.filter(p => p.userId !== currentUserId).length === 0) setConnecting(false);
+      if (participants.filter(p => Number(p.userId) !== currentUserId).length === 0) setConnecting(false);
     })();
 
     return () => {
@@ -318,29 +340,32 @@ export default function VoicePanel({
         }
       });
     };
-    const participantsWithoutMe = participants.filter(p => p.userId !== currentUserId);
+    const iceServers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' }
+    ];
+    const participantsWithoutMe = participants.filter(p => Number(p.userId) !== currentUserId);
     participantsWithoutMe.forEach(p => {
-      if (!peersRef.current[p.userId]) {
+      const peerId = Number(p.userId);
+      if (!peersRef.current[peerId]) {
         const pc = new RTCPeerConnection({
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-          ],
+          iceServers,
           bundlePolicy: 'max-bundle',
           rtcpMuxPolicy: 'require'
         });
         localStreamRef.current.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current));
         pc.ontrack = (e) => {
           const stream = e.streams[0] || (e.track ? new MediaStream([e.track]) : null);
-          if (stream) setRemoteStreams(prev => ({ ...prev, [p.userId]: stream }));
+          if (stream) setRemoteStreams(prev => ({ ...prev, [peerId]: stream }));
         };
         pc.onicecandidate = (e) => {
-          if (e.candidate) socket.emit('voice_signal', { toUserId: p.userId, signal: { type: 'ice', candidate: e.candidate } });
+          if (e.candidate) socket.emit('voice_signal', { toUserId: peerId, signal: { type: 'ice', candidate: e.candidate } });
         };
-        peersRef.current[p.userId] = pc;
+        peersRef.current[peerId] = pc;
         pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
           setAudioBitrate(pc);
-          socket.emit('voice_signal', { toUserId: p.userId, signal: pc.localDescription });
+          socket.emit('voice_signal', { toUserId: peerId, signal: pc.localDescription });
         });
       }
     });
@@ -474,6 +499,15 @@ export default function VoicePanel({
         </div>
       </div>
       {micError && <span className="voice-panel-mic-error" title={micError}>⚠</span>}
+      {inVoice && Object.keys(remoteStreams).length > 0 && !deafened && (
+        <button
+          type="button"
+          className="voice-panel-enable-sound-btn"
+          onClick={e => { e.stopPropagation(); playAllRemoteAudio(); }}
+        >
+          Включить звук участников
+        </button>
+      )}
       {Object.entries(remoteStreams).map(([userId, stream]) => (
         <audio
           key={userId}
