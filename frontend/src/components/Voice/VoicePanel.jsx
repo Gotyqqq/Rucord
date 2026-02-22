@@ -17,6 +17,24 @@ const SENSITIVITY_STORAGE_KEYS = {
   threshold: 'rucord_voice_sensitivity_threshold'
 };
 
+const VOICE_PANEL_STORAGE_KEYS = {
+  muted: 'rucord_voice_panel_muted',
+  deafened: 'rucord_voice_panel_deafened'
+};
+
+function loadVoicePanelBool(key, def) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === 'true' ? true : v === 'false' ? false : def;
+  } catch (e) {}
+  return def;
+}
+function saveVoicePanelBool(key, value) {
+  try {
+    localStorage.setItem(key, value ? 'true' : 'false');
+  } catch (e) {}
+}
+
 function getSpeakThreshold() {
   try {
     const auto = localStorage.getItem(SENSITIVITY_STORAGE_KEYS.auto);
@@ -43,8 +61,8 @@ export default function VoicePanel({
   micTestMode = false,
   onMicTestModeChange
 }) {
-  const [muted, setMuted] = useState(false);
-  const [deafened, setDeafened] = useState(false);
+  const [muted, setMuted] = useState(() => loadVoicePanelBool(VOICE_PANEL_STORAGE_KEYS.muted, false));
+  const [deafened, setDeafened] = useState(() => loadVoicePanelBool(VOICE_PANEL_STORAGE_KEYS.deafened, false));
   const [connecting, setConnecting] = useState(true);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [speakingUsers, setSpeakingUsers] = useState({});
@@ -83,6 +101,8 @@ export default function VoicePanel({
         localStreamRef.current = stream;
         setHasLocalStream(true);
         setConnecting(false);
+        const savedMuted = loadVoicePanelBool(VOICE_PANEL_STORAGE_KEYS.muted, false);
+        stream.getAudioTracks().forEach(t => { t.enabled = !savedMuted; });
       } catch (err) {
         console.error('Voice getUserMedia:', err);
         setMicError(err.message || 'Нет доступа к микрофону');
@@ -331,9 +351,20 @@ export default function VoicePanel({
     const els = audioElsRef.current;
     Object.keys(els).forEach(userId => {
       const el = els[userId];
-      if (el && el.srcObject && el.paused) el.play().catch(() => {});
+      if (el && el.srcObject && !el.muted && el.paused) el.play().catch(() => {});
     });
   }, [remoteStreams]);
+
+  // Периодическая попытка воспроизведения (на случай, если поток пришёл с задержкой после блокировки autoplay)
+  useEffect(() => {
+    if (!channel?.id || Object.keys(remoteStreams).length === 0) return;
+    const id = setInterval(() => {
+      Object.values(audioElsRef.current).forEach(el => {
+        if (el && el.srcObject && !el.muted && el.paused) el.play().catch(() => {});
+      });
+    }, 2000);
+    return () => clearInterval(id);
+  }, [channel?.id, remoteStreams]);
 
   // Синхронизация «выключить звук»: заглушаем все удалённые потоки
   useEffect(() => {
@@ -344,19 +375,29 @@ export default function VoicePanel({
     });
   }, [deafened]);
 
+  // При входе в канал отправляем серверу сохранённое состояние микрофона и наушников
+  useEffect(() => {
+    if (!channel?.id || !socket || !hasLocalStream) return;
+    socket.emit('voice_muted', { channelId: channel.id, muted });
+    socket.emit('voice_deafened', { channelId: channel.id, deafened });
+  }, [channel?.id, socket, hasLocalStream]);
+
   const inVoice = !!channel;
 
   const toggleMute = () => {
-    if (!localStreamRef.current) return;
     const next = !muted;
-    localStreamRef.current.getTracks().forEach(t => { t.enabled = !next; });
     setMuted(next);
+    saveVoicePanelBool(VOICE_PANEL_STORAGE_KEYS.muted, next);
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = !next; });
+    }
     if (socket && channel?.id) socket.emit('voice_muted', { channelId: channel.id, muted: next });
   };
 
   const toggleDeafen = () => {
     const next = !deafened;
     setDeafened(next);
+    saveVoicePanelBool(VOICE_PANEL_STORAGE_KEYS.deafened, next);
     if (socket && channel?.id) socket.emit('voice_deafened', { channelId: channel.id, deafened: next });
   };
 
@@ -369,8 +410,18 @@ export default function VoicePanel({
   };
   const avatarUrl = user?.avatar_url ? (user.avatar_url.startsWith('http') ? user.avatar_url : (window.__API_BASE__ || '') + user.avatar_url) : null;
 
+  const playAllRemoteAudio = () => {
+    Object.values(audioElsRef.current).forEach(el => {
+      if (el && el.srcObject && !el.muted) el.play().catch(() => {});
+    });
+  };
+
   return (
-    <div className="voice-panel voice-panel-corner" style={{ width: Math.max(200, channelListWidth - 16), maxWidth: channelListWidth - 16 }}>
+    <div
+      className="voice-panel voice-panel-corner"
+      style={{ width: Math.max(200, channelListWidth - 16), maxWidth: channelListWidth - 16 }}
+      onClick={playAllRemoteAudio}
+    >
       <div className="voice-panel-user-row">
         <div
           className="voice-panel-user-avatar"
@@ -394,10 +445,9 @@ export default function VoicePanel({
           <div className="voice-panel-controls-row">
             <button
               type="button"
-              className={`voice-panel-mic-btn ${muted ? 'muted' : ''} ${!inVoice ? 'voice-panel-btn-disabled' : ''}`}
-              onClick={inVoice ? toggleMute : undefined}
-              title={inVoice ? (muted ? 'Включить микрофон' : 'Выключить микрофон') : 'Микрофон'}
-              disabled={!inVoice}
+              className={`voice-panel-mic-btn ${muted ? 'muted' : ''}`}
+              onClick={toggleMute}
+              title={muted ? 'Включить микрофон' : 'Выключить микрофон'}
             >
               {muted ? (
                 <svg className="voice-panel-mic-icon voice-panel-mic-icon-off" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden>
@@ -412,10 +462,9 @@ export default function VoicePanel({
             </button>
             <button
               type="button"
-              className={`voice-panel-headphone-btn ${deafened ? 'deafened' : ''} ${!inVoice ? 'voice-panel-btn-disabled' : ''}`}
-              onClick={inVoice ? toggleDeafen : undefined}
-              title={inVoice ? (deafened ? 'Включить звук' : 'Выключить звук') : 'Устройство вывода'}
-              disabled={!inVoice}
+              className={`voice-panel-headphone-btn ${deafened ? 'deafened' : ''}`}
+              onClick={toggleDeafen}
+              title={deafened ? 'Включить звук' : 'Выключить звук'}
             >
               <span className={`voice-panel-headphone-icon ${deafened ? 'voice-panel-headphone-icon-off' : ''}`}>🎧</span>
               <span className="voice-panel-mic-arrow">▾</span>

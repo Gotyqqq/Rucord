@@ -2620,6 +2620,27 @@ input, select {
   transform: translateX(20px);
 }
 
+.user-settings-sensitivity-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.user-settings-sensitivity-label-row label {
+  margin: 0;
+}
+
+.user-settings-sensitivity-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 15px;
+  color: #dcddde;
+  min-width: 2ch;
+  text-align: right;
+}
+
 .user-settings-sensitivity-slider-wrap {
   margin-top: 8px;
 }

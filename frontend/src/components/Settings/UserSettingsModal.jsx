@@ -423,7 +423,10 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
                   <p className="user-settings-sensitivity-desc">Порог срабатывания индикатора речи в голосовом канале. При включённой автонастройке порог подбирается автоматически; при выключении — настраивается ползунком.</p>
                   {!sensitivityAuto && (
                     <div className="user-settings-field">
-                      <label>Порог чувствительности (когда срабатывает индикатор речи)</label>
+                      <div className="user-settings-sensitivity-label-row">
+                        <label>Порог чувствительности (когда срабатывает индикатор речи)</label>
+                        <span className="user-settings-sensitivity-value" aria-live="polite">{sensitivityThreshold}</span>
+                      </div>
                       <div className="user-settings-sensitivity-slider-wrap">
                         <div className="user-settings-sensitivity-level-bg">
                           {Array.from({ length: SENSITIVITY_BARS }, (_, i) => {
