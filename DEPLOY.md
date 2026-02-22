@@ -242,36 +242,59 @@ cd ../backend
 NODE_ENV=production pm2 restart rucord
 ```
 
-Готовый скрипт на сервере (один раз создать):
+**Скрипт `deploy.sh` лежит в корне репозитория.** После `git pull` он уже будет на сервере. Он делает: pull → сборка backend/frontend → **копирование фронта в каталог nginx** (`/var/www/www-root/data/root/Rucord/frontend/dist`) → перезапуск pm2.
+
+Если скрипта ещё нет на сервере или путь nginx другой, создай вручную:
 
 ```bash
 nano ~/Rucord/deploy.sh
 ```
 
-Вставь:
-
-```bash
-#!/usr/bin/env bash
-set -e
-cd ~/Rucord
-git pull --ff-only
-cd backend && npm install
-cd ../frontend && npm install && npm run build
-cd ../backend && NODE_ENV=production pm2 restart rucord
-echo "Done."
-```
-
-Сохрани, затем:
+Вставь содержимое из файла `deploy.sh` в корне проекта (там есть копирование в каталог nginx). Затем:
 
 ```bash
 chmod +x ~/Rucord/deploy.sh
 ```
 
-Дальше после каждого `git push` достаточно зайти по SSH и выполнить:
+Дальше после каждого `git push` (или вручную) зайти по SSH и выполнить:
 
 ```bash
 ~/Rucord/deploy.sh
 ```
+
+Если nginx раздаёт фронт из другой папки, перед запуском задай переменную:
+`NGINX_FRONTEND_ROOT=/твой/путь ~/Rucord/deploy.sh`
+
+---
+
+## Полный перезапуск и пересборка (если ничего не изменилось)
+
+Частая причина: **фронт собирается в `~/Rucord/frontend/dist`, а nginx отдаёт из `/var/www/.../Rucord/frontend/dist`** — без копирования новый билд не подхватывается.
+
+**На сервере по SSH выполни по порядку:**
+
+```bash
+# 1. Подключись (у себя в терминале)
+ssh root@92.63.107.123
+
+# 2. Зайди в проект и подтяни код (в т.ч. новый deploy.sh)
+cd ~/Rucord
+git pull --ff-only
+
+# 3. Дам скрипту права на выполнение (если ещё не даны)
+chmod +x ~/Rucord/deploy.sh
+
+# 4. Полный деплой: pull уже сделан, скрипт пересоберёт всё и скопирует фронт в каталог nginx
+~/Rucord/deploy.sh
+```
+
+Если папка проекта на сервере не `~/Rucord`, а например `~/rucord`, то сначала: `cd ~/rucord && git pull`, потом отредактируй в `deploy.sh` строку `REPO_DIR=...` или запусти так:
+
+```bash
+REPO_DIR=$HOME/rucord ~/rucord/deploy.sh
+```
+
+После успешного выполнения открой сайт с **жёстким обновлением** (Ctrl+Shift+R), чтобы сбросить кэш браузера.
 
 ---
 
