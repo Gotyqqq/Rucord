@@ -478,8 +478,10 @@ export default function VoicePanel({
         pendingCandidatesRef.current[fromId] = [];
       }
 
+      const state = pc.signalingState;
       try {
         if (signal.type === 'offer') {
+          if (state !== 'stable' && state !== 'have-remote-offer') return;
           await pc.setRemoteDescription(new RTCSessionDescription(signal));
           await flushIceCandidates(pc, fromId);
           const answer = await pc.createAnswer();
@@ -487,6 +489,7 @@ export default function VoicePanel({
           setAudioBitrate(pc);
           socket.emit('voice_signal', { toUserId: fromId, signal: pc.localDescription });
         } else if (signal.type === 'answer') {
+          if (state !== 'have-local-offer') return;
           await pc.setRemoteDescription(new RTCSessionDescription(signal));
           await flushIceCandidates(pc, fromId);
         } else if (signal.candidate) {
