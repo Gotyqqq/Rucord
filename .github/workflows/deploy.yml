@@ -16,5 +16,5 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd ~/Rucord && ./deploy.sh
+            cd ~/Rucord && chmod +x deploy.sh && ./deploy.sh
             echo "Deploy done."
