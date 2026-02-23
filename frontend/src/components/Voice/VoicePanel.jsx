@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Mic, MicOff, Headphones, Settings, X } from 'lucide-react';
 import { HeadphonesOff } from '../ui/HeadphonesOff';
 import {
-  ICE_SERVERS, AUDIO_BITRATE, VOICE_KEYS,
+  ICE_SERVERS, AUDIO_BITRATE, VOICE_KEYS, VOICE_USE_RELAY,
   loadNumber, loadString, loadBool, saveBool,
   setAudioBitrate, getSpeakThreshold, getNoiseSuppressorWorkletUrl
 } from '../../utils/voiceConfig';
@@ -65,6 +65,9 @@ export default function VoicePanel({
   const savedMutedRef = useRef(false);
   const savedDeafenedRef = useRef(false);
   const iceRestartCountRef = useRef({});
+  const relayRecorderRef = useRef(null);
+  const relayPlaybackCtxRef = useRef(null);
+  const relayQueuesRef = useRef({});
 
   // ---- Settings from localStorage, reactive via storage event ----
   const [inputDeviceId, setInputDeviceId] = useState(() => loadString(VOICE_KEYS.inputDeviceId, ''));
@@ -458,9 +461,16 @@ export default function VoicePanel({
     return () => socket.off('voice_speaking', onSpeaking);
   }, [socket]);
 
-  // ---- WebRTC: connect to peers ----
+  // ---- Режим релея: при смене канала/размонтировании выйти из голосового канала ----
   useEffect(() => {
-    if (!channel || !socket || !hasLocalStream || !processedStreamRef.current) return;
+    if (!VOICE_USE_RELAY || !channel?.id || !socket) return;
+    const channelId = channel.id;
+    return () => { socket.emit('leave_voice_channel', channelId); };
+  }, [VOICE_USE_RELAY, channel?.id, socket]);
+
+  // ---- WebRTC: connect to peers (только когда релей выключен) ----
+  useEffect(() => {
+    if (VOICE_USE_RELAY || !channel || !socket || !hasLocalStream || !processedStreamRef.current) return;
     const channelId = channel.id;
     const processedStream = processedStreamRef.current;
 
@@ -519,11 +529,11 @@ export default function VoicePanel({
       socket.off('voice_signal', handleSignal);
       cleanup();
     };
-  }, [channel?.id, currentUserId, socket, hasLocalStream, createPeerConnection, flushIceCandidates]);
+  }, [VOICE_USE_RELAY, channel?.id, currentUserId, socket, hasLocalStream, createPeerConnection, flushIceCandidates]);
 
-  // ---- New participant: create offer ----
+  // ---- New participant: create offer (только P2P) ----
   useEffect(() => {
-    if (!channel || !socket || !hasLocalStream || !processedStreamRef.current) return;
+    if (VOICE_USE_RELAY || !channel || !socket || !hasLocalStream || !processedStreamRef.current) return;
     const processedStream = processedStreamRef.current;
 
     participants.forEach(p => {
@@ -536,9 +546,91 @@ export default function VoicePanel({
         socket.emit('voice_signal', { toUserId: peerId, signal: pc.localDescription });
       }).catch(() => {});
     });
-  }, [channel?.id, participants, currentUserId, socket, hasLocalStream, createPeerConnection]);
+  }, [VOICE_USE_RELAY, channel?.id, participants, currentUserId, socket, hasLocalStream, createPeerConnection]);
 
-  // ---- Autoplay remote audio (с задержкой, т.к. ref вызывается после commit) ----
+  useEffect(() => {
+    if (VOICE_USE_RELAY && channel?.id && hasLocalStream) setConnecting(false);
+  }, [VOICE_USE_RELAY, channel?.id, hasLocalStream]);
+
+  // ---- Релей: отправка аудио на сервер ----
+  useEffect(() => {
+    if (!VOICE_USE_RELAY || !channel?.id || !socket || !hasLocalStream || !processedStreamRef.current) return;
+    const stream = processedStreamRef.current;
+    const channelId = channel.id;
+    if (muted) return;
+
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    let recorder;
+    try {
+      recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 });
+    } catch (e) {
+      console.warn('[Голос] MediaRecorder не создан:', e);
+      return;
+    }
+    relayRecorderRef.current = recorder;
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0 && socket && relayRecorderRef.current === recorder) {
+        e.data.arrayBuffer().then((buf) => {
+          if (socket && relayRecorderRef.current === recorder) socket.emit('voice_audio', { channelId, data: buf });
+        }).catch(() => {});
+      }
+    };
+    recorder.start(60);
+
+    return () => {
+      if (relayRecorderRef.current === recorder) relayRecorderRef.current = null;
+      try { recorder.stop(); } catch (e) {}
+    };
+  }, [VOICE_USE_RELAY, channel?.id, socket, hasLocalStream, muted]);
+
+  // ---- Релей: приём и воспроизведение аудио ----
+  useEffect(() => {
+    if (!VOICE_USE_RELAY || !channel?.id || !socket) return;
+
+    const ctx = relayPlaybackCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
+    relayPlaybackCtxRef.current = ctx;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+    const schedulePlay = (userId, buffer) => {
+      const q = relayQueuesRef.current[userId] || { nextStartTime: 0 };
+      relayQueuesRef.current[userId] = q;
+      const now = ctx.currentTime;
+      if (q.nextStartTime < now) q.nextStartTime = now;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(ctx.destination);
+      src.start(q.nextStartTime);
+      q.nextStartTime += buffer.duration;
+    };
+
+    const onVoiceAudio = ({ userId, data }) => {
+      if (effectiveDeafened) return;
+      const buf = data instanceof ArrayBuffer ? data : (data?.buffer ? data.buffer : null);
+      if (!buf) return;
+      ctx.decodeAudioData(buf.slice(0)).then((buffer) => {
+        if (relayPlaybackCtxRef.current !== ctx) return;
+        schedulePlay(userId, buffer);
+      }).catch(() => {});
+    };
+
+    socket.on('voice_audio', onVoiceAudio);
+    return () => {
+      socket.off('voice_audio', onVoiceAudio);
+    };
+  }, [VOICE_USE_RELAY, channel?.id, socket, effectiveDeafened]);
+
+  useEffect(() => {
+    if (!VOICE_USE_RELAY) return;
+    return () => {
+      if (relayPlaybackCtxRef.current) {
+        try { relayPlaybackCtxRef.current.close(); } catch (e) {}
+        relayPlaybackCtxRef.current = null;
+      }
+      relayQueuesRef.current = {};
+    };
+  }, [VOICE_USE_RELAY]);
+
+  // ---- Autoplay remote audio (P2P: с задержкой, т.к. ref вызывается после commit) ----
   const tryPlayRemoteAudio = useCallback(() => {
     Object.values(audioElsRef.current).forEach(el => {
       if (el?.srcObject && !el.muted && el.paused) {
@@ -626,6 +718,9 @@ export default function VoicePanel({
 
   const playAllRemoteAudio = (e) => {
     if (e) e.stopPropagation?.();
+    if (VOICE_USE_RELAY && relayPlaybackCtxRef.current?.state === 'suspended') {
+      relayPlaybackCtxRef.current.resume().catch(() => {});
+    }
     Object.values(audioElsRef.current).forEach(el => {
       if (el?.srcObject && !el.muted) {
         el.play().catch((err) => {
@@ -636,8 +731,9 @@ export default function VoicePanel({
     setHasUserEnabledSound(true);
   };
 
-  // Connection quality indicator
+  // Connection quality indicator (релей: всегда «подключено» по сокету)
   const connectionQuality = (() => {
+    if (VOICE_USE_RELAY) return inVoice ? 'good' : 'idle';
     const states = Object.values(peerStates);
     if (states.length === 0) return connecting ? 'connecting' : 'idle';
     if (states.every(s => s === 'connected')) return 'good';
@@ -648,7 +744,8 @@ export default function VoicePanel({
 
   const qualityColors = { good: '#3ba55c', fair: '#faa61a', bad: '#ed4245', connecting: '#747f8d', idle: '#747f8d' };
 
-  const needEnableSoundPrompt = inVoice && Object.keys(remoteStreams).length > 0 && !effectiveDeafened && !hasUserEnabledSound;
+  const hasOtherParticipants = participants.filter(p => Number(p.userId) !== currentUserId).length > 0;
+  const needEnableSoundPrompt = inVoice && !effectiveDeafened && !hasUserEnabledSound && (VOICE_USE_RELAY ? hasOtherParticipants : Object.keys(remoteStreams).length > 0);
 
   return (
     <div

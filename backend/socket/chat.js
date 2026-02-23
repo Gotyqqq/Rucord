@@ -669,6 +669,20 @@ function setupSocket(io) {
       });
     });
 
+    // ---- Релей голоса (альтернатива P2P): чанки аудио через сервер ----
+    const VOICE_AUDIO_MAX_CHUNK = 64 * 1024;
+    socket.on('voice_audio', ({ channelId, data }) => {
+      if (!channelId || !socket.rooms.has(`voice_${channelId}`)) return;
+      const muted = voiceMutedMap.get(`${channelId}_${socket.user.id}`);
+      if (muted) return;
+      const chunk = Buffer.isBuffer(data) ? data : (data && data.buffer ? Buffer.from(data) : null);
+      if (!chunk || chunk.length > VOICE_AUDIO_MAX_CHUNK) return;
+      socket.to(`voice_${channelId}`).emit('voice_audio', {
+        userId: socket.user.id,
+        data: chunk
+      });
+    });
+
     socket.on('disconnect', () => {
       for (const room of socket.rooms) {
         if (room.startsWith('voice_')) {

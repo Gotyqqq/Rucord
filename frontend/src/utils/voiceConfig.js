@@ -5,6 +5,9 @@ export const getNoiseSuppressorWorkletUrl = () =>
     ? new URL('../audio/noise-suppressor-worklet.js', import.meta.url).href
     : `${typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL ? import.meta.env.BASE_URL : '/'}assets/noise-suppressor-worklet.js`;
 
+// Релей через сервер (без P2P) — стабильнее в РФ при проблемах с NAT/WebRTC
+export const VOICE_USE_RELAY = true;
+
 export const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
