@@ -35,7 +35,7 @@ function saveToStorage(key, data) {
 }
 
 export default function App() {
-  const { user, token, loading, logout } = useAuth();
+  const { user, token, loading, logout, refreshUser } = useAuth();
 
   const [authPage, setAuthPage] = useState('landing');
   const [servers, setServers] = useState([]);
@@ -274,7 +274,12 @@ export default function App() {
     });
 
     socket.on('members_updated', ({ serverId }) => {
-      if (serverId === selectedServerIdRef.current) loadMembers(serverId);
+      if (serverId === selectedServerIdRef.current) {
+        loadMembers(serverId);
+        socket.emit('get_voice_rosters', serverId, (rosters) => {
+          if (rosters && typeof rosters === 'object') setVoiceRosters(rosters);
+        });
+      }
     });
 
     socket.on('presence_update', ({ userId, status }) => {
@@ -284,11 +289,11 @@ export default function App() {
     socket.on('voice_participants', ({ channelId, participants }) => {
       if (channelId === currentVoiceChannelIdRef.current) setVoiceParticipants(participants || []);
     });
-    socket.on('voice_participant_joined', ({ channelId, userId, username, muted, deafened }) => {
+    socket.on('voice_participant_joined', ({ channelId, userId, username, muted, deafened, force_muted, force_deafened }) => {
       if (channelId !== currentVoiceChannelIdRef.current) return;
       setVoiceParticipants(prev => {
         if (prev.some(p => p.userId === userId)) return prev;
-        return [...prev, { userId, username, muted: muted ?? false, deafened: deafened ?? false }];
+        return [...prev, { userId, username, muted: muted ?? false, deafened: deafened ?? false, force_muted: !!force_muted, force_deafened: !!force_deafened }];
       });
     });
     socket.on('voice_participant_left', ({ channelId, userId }) => {
@@ -302,6 +307,32 @@ export default function App() {
     });
     socket.on('voice_speaking', ({ userId, speaking }) => {
       setVoiceSpeakingUsers(prev => ({ ...prev, [userId]: speaking }));
+    });
+    socket.on('voice_force_muted', ({ userId, muted }) => {
+      setVoiceParticipants(prev => prev.map(p => p.userId === userId ? { ...p, force_muted: !!muted, muted: !!muted } : p));
+      setVoiceRosters(prev => {
+        const next = { ...prev };
+        for (const [channelId, roster] of Object.entries(prev)) {
+          if (roster.some(p => p.userId === userId)) {
+            next[channelId] = roster.map(p => p.userId === userId ? { ...p, force_muted: !!muted, muted: !!muted } : p);
+          }
+        }
+        return next;
+      });
+      if (selectedServerIdRef.current) loadMembers(selectedServerIdRef.current);
+    });
+    socket.on('voice_force_deafened', ({ userId, deafened }) => {
+      setVoiceParticipants(prev => prev.map(p => p.userId === userId ? { ...p, force_deafened: !!deafened, deafened: !!deafened } : p));
+      setVoiceRosters(prev => {
+        const next = { ...prev };
+        for (const [channelId, roster] of Object.entries(prev)) {
+          if (roster.some(p => p.userId === userId)) {
+            next[channelId] = roster.map(p => p.userId === userId ? { ...p, force_deafened: !!deafened, deafened: !!deafened } : p);
+          }
+        }
+        return next;
+      });
+      if (selectedServerIdRef.current) loadMembers(selectedServerIdRef.current);
     });
 
     socket.on('slowmode_wait', ({ channelId, remaining }) => {
@@ -538,6 +569,11 @@ export default function App() {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, member });
   };
+  const handleVoiceContextMenu = (e, member, channelId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, member, fromVoice: true, channelId });
+  };
   const closeContextMenu = () => setContextMenu(null);
 
   // Profile
@@ -569,6 +605,7 @@ export default function App() {
 
   const isOwnerFlag = currentServer?.owner_id === user?.id;
   const canManageChannels = isOwnerFlag || !!myPermissions.manage_channels;
+  const canCreateVoiceChannel = isOwnerFlag || !!myPermissions.manage_channels || !!myPermissions.create_voice_channels;
   const canOpenSettings = isOwnerFlag || !!myPermissions.manage_roles || !!myPermissions.manage_server || !!myPermissions.manage_channels || !!myPermissions.kick_members || !!myPermissions.ban_members || !!myPermissions.administrator;
 
   if (loading) {
@@ -627,6 +664,7 @@ export default function App() {
       >
         <ChannelList
           server={currentServer} channels={channels}
+          members={members}
           selectedChannelId={selectedChannelId}
           onSelectChannel={setSelectedChannelId}
           onCreateChannel={handleCreateChannel}
@@ -636,10 +674,13 @@ export default function App() {
           currentVoiceChannelId={currentVoiceChannelId}
           voiceRosters={voiceRosters}
           voiceSpeakingUsers={voiceSpeakingUsers}
+          onOpenProfile={handleOpenProfile}
           onOpenSettings={() => setShowSettings(true)}
           onLeaveServer={handleLeaveServer}
           onShowInvite={handleShowInvite}
           canManageChannels={canManageChannels}
+          canCreateVoiceChannel={canCreateVoiceChannel}
+          onOpenVoiceContextMenu={handleVoiceContextMenu}
           isOwner={isOwnerFlag} canOpenSettings={canOpenSettings}
           mentionsByChannel={mentionsByChannel}
           onOpenChannelSettings={handleOpenChannelSettings}
@@ -647,6 +688,7 @@ export default function App() {
           allServers={user?.is_master ? servers : []}
           onSelectServerPreview={handleSelectServerPreview}
           currentUsername={user?.username}
+          currentDisplayName={user?.display_name || user?.username}
         />
         <div className="app-bottom-spacer" aria-hidden />
       </div>
@@ -667,7 +709,7 @@ export default function App() {
         channel={currentChannel} messages={messages}
         onSendMessage={handleSendMessage} onEditMessage={handleEditMessage} onDeleteMessage={handleDeleteMessage}
         typingUsers={typingUsers} currentUserId={user.id}
-        currentUsername={user.username} members={members} isOwner={isOwnerFlag}
+        currentUsername={user.username} currentDisplayName={user.display_name || user.username} members={members} isOwner={isOwnerFlag}
         slowmodeWait={slowmodeWait}
         onOpenProfile={handleOpenProfile}
         onlineStatuses={onlineStatuses}
@@ -683,6 +725,7 @@ export default function App() {
           participants={voiceParticipants}
           currentUserId={user?.id}
           currentUsername={user?.username}
+          currentDisplayName={user?.display_name || user?.username}
           user={user}
           members={members}
           socket={getSocket()}
@@ -740,31 +783,52 @@ export default function App() {
         />
       )}
 
-      {/* Context menu */}
-      {contextMenu && currentServer && (
-        <UserContextMenu
-          x={contextMenu.x} y={contextMenu.y}
-          targetMember={contextMenu.member}
-          serverId={currentServer.id}
-          myPermissions={myPermissions}
-          myHighestPos={myHighestPos}
-          isOwner={isOwnerFlag}
-          currentUserId={user.id}
-          onClose={closeContextMenu}
-          onRefreshMembers={refreshMembers}
-          roles={roles}
-        />
-      )}
+      {/* Context menu — одинаковое меню везде: из списка участников и из голосового канала */}
+      {contextMenu && currentServer && (() => {
+        const targetUserId = contextMenu.member?.user_id;
+        const voiceChannels = channels.filter(c => c.type === 'voice');
+        const channelWhereTarget = contextMenu.fromVoice
+          ? contextMenu.channelId
+          : (voiceChannels.find(ch => (voiceRosters[ch.id] || []).some(p => p.userId === targetUserId))?.id ?? null);
+        const roster = channelWhereTarget ? (voiceRosters[channelWhereTarget] || []) : [];
+        const targetInRoster = roster.find(r => r.userId === targetUserId);
+        const voiceForceMuted = targetInRoster?.force_muted ?? !!contextMenu.member?.voice_force_muted;
+        const voiceForceDeafened = targetInRoster?.force_deafened ?? !!contextMenu.member?.voice_force_deafened;
+        return (
+          <UserContextMenu
+            x={contextMenu.x} y={contextMenu.y}
+            targetMember={contextMenu.member}
+            serverId={currentServer.id}
+            myPermissions={myPermissions}
+            myHighestPos={myHighestPos}
+            isOwner={isOwnerFlag}
+            currentUserId={user.id}
+            onClose={closeContextMenu}
+            onRefreshMembers={refreshMembers}
+            onOpenProfile={handleOpenProfile}
+            roles={roles}
+            voiceChannelId={channelWhereTarget}
+            voiceSocket={getSocket()}
+            canMuteVoiceMembers={isOwnerFlag || !!myPermissions?.mute_members}
+            canDeafenVoiceMembers={isOwnerFlag || !!myPermissions?.deafen_members}
+            voiceForceMuted={voiceForceMuted}
+            voiceForceDeafened={voiceForceDeafened}
+          />
+        );
+      })()}
 
       {/* Profile popup */}
       {profileTarget && (
         <UserProfilePopup
           targetUser={profileTarget}
+          serverId={selectedServerId}
           onClose={handleCloseProfile}
           onOpenDM={handleOpenDM}
           onSendQuickDM={handleSendQuickDM}
+          onDisplayNameUpdated={() => { refreshUser(); if (selectedServerId) loadMembers(selectedServerId); }}
           onlineStatus={onlineStatuses[profileTarget.user_id] || 'offline'}
           currentUserId={user.id}
+          token={token}
         />
       )}
 
@@ -776,6 +840,10 @@ export default function App() {
             setShowUserSettings(false);
           }}
           token={token}
+          servers={memberServers}
+          currentServerId={selectedServerId}
+          canChangeDisplayNameOnServer={isOwnerFlag || !!myPermissions?.change_display_name}
+          onDisplayNameUpdated={() => { refreshUser(); if (selectedServerId) loadMembers(selectedServerId); }}
           inVoiceChannel={!!currentVoiceChannelId}
           onStartMicTest={() => setMicTestMode(true)}
           onStopMicTest={() => setMicTestMode(false)}

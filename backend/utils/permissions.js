@@ -5,8 +5,10 @@ const { isMaster, addMasterToServer, ALL_PERMS: MASTER_ALL } = require('./master
 const ALL_PERMS = {
   administrator: true, manage_server: true, manage_channels: true,
   manage_roles: true, kick_members: true, ban_members: true,
-  mute_members: true, send_messages: true, read_messages: true,
-  edit_messages: true, delete_messages: true, send_gifs: true, send_media: true
+  mute_members: true, deafen_members: true,
+  send_messages: true, read_messages: true,
+  edit_messages: true, delete_messages: true, send_gifs: true, send_media: true,
+  change_display_name: true, speak_in_voice: true, create_voice_channels: true
 };
 
 function isOwner(serverId, userId) {
@@ -38,6 +40,10 @@ function getUserPermissions(serverId, userId) {
   if (merged.send_gifs === undefined) merged.send_gifs = true;
   if (merged.send_media === undefined) merged.send_media = true;
   if (merged.delete_messages === undefined) merged.delete_messages = false;
+  if (merged.change_display_name === undefined) merged.change_display_name = true;
+  if (merged.speak_in_voice === undefined) merged.speak_in_voice = true;
+  if (merged.create_voice_channels === undefined) merged.create_voice_channels = false;
+  if (merged.deafen_members === undefined) merged.deafen_members = false;
   return merged;
 }
 

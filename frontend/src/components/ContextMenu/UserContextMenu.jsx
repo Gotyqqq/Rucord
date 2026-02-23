@@ -9,7 +9,9 @@ import { useAuth } from '../../context/AuthContext';
 
 export default function UserContextMenu({
   x, y, targetMember, serverId, myPermissions = {}, myHighestPos = 0,
-  isOwner = false, currentUserId, onClose, onRefreshMembers, roles = []
+  isOwner = false, currentUserId, onClose, onRefreshMembers, roles = [],
+  onOpenProfile,
+  voiceChannelId, voiceSocket, canMuteVoiceMembers, canDeafenVoiceMembers, voiceForceMuted, voiceForceDeafened
 }) {
   const { token } = useAuth();
   const menuRef = useRef(null);
@@ -105,17 +107,71 @@ export default function UserContextMenu({
     if (y + 400 > window.innerHeight) style.top = Math.max(10, y - 300);
   }
 
+  const toggleVoiceMute = () => {
+    if (!voiceSocket || !serverId) return;
+    if (voiceChannelId) {
+      voiceSocket.emit('voice_force_mute', { channelId: voiceChannelId, targetUserId: targetMember.user_id, muted: !voiceForceMuted });
+    } else {
+      voiceSocket.emit('voice_force_mute_user', { serverId, targetUserId: targetMember.user_id, muted: !voiceForceMuted });
+    }
+    onClose();
+  };
+  const toggleVoiceDeafen = () => {
+    if (!voiceSocket || !serverId) return;
+    if (voiceChannelId) {
+      voiceSocket.emit('voice_force_deafen', { channelId: voiceChannelId, targetUserId: targetMember.user_id, deafened: !voiceForceDeafened });
+    } else {
+      voiceSocket.emit('voice_force_deafen_user', { serverId, targetUserId: targetMember.user_id, deafened: !voiceForceDeafened });
+    }
+    onClose();
+  };
+
   return (
     <div className="ctx-menu" ref={menuRef} style={style} onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
       <div className="ctx-menu-header">
         <span className="ctx-menu-username" style={{ color: (targetMember.roles?.[0]?.color) || '#fff' }}>
-          {targetMember.username}
+          {targetMember.display_name || targetMember.username}
         </span>
         {targetMember.is_owner && <span className="ctx-menu-badge">👑</span>}
         {targetMember.is_muted && <span className="ctx-menu-badge ctx-muted-badge">🔇</span>}
       </div>
 
       {error && <div className="ctx-menu-error">{error}</div>}
+
+      {onOpenProfile && (
+        <button className="ctx-menu-item" onClick={() => { onOpenProfile(targetMember); onClose(); }}>
+          <span>Открыть профиль</span>
+        </button>
+      )}
+
+      {(canMuteVoiceMembers || canDeafenVoiceMembers) && (
+        <>
+          {onOpenProfile && <div className="ctx-menu-sep" />}
+          {canMuteVoiceMembers && (
+            <button
+              type="button"
+              className={`ctx-menu-item ctx-danger ${!voiceSocket ? 'ctx-menu-item-disabled' : ''}`}
+              onClick={voiceSocket ? toggleVoiceMute : undefined}
+              disabled={!voiceSocket}
+              title={!voiceSocket ? 'Нет подключения к голосовому каналу' : (voiceChannelId ? undefined : 'Применится при входе в голосовой канал')}
+            >
+              <span>{voiceForceMuted ? 'Включить микрофон' : 'Выключить микрофон'}</span>
+            </button>
+          )}
+          {canDeafenVoiceMembers && (
+            <button
+              type="button"
+              className={`ctx-menu-item ctx-danger ${!voiceSocket ? 'ctx-menu-item-disabled' : ''}`}
+              onClick={voiceSocket ? toggleVoiceDeafen : undefined}
+              disabled={!voiceSocket}
+              title={!voiceSocket ? 'Нет подключения к голосовому каналу' : (voiceChannelId ? undefined : 'Применится при входе в голосовой канал')}
+            >
+              <span>{voiceForceDeafened ? 'Включить звук' : 'Выключить звук'}</span>
+            </button>
+          )}
+          <div className="ctx-menu-sep" />
+        </>
+      )}
 
       {/* Roles submenu */}
       {canManageRoles && assignableRoles.length > 0 && (
@@ -203,7 +259,7 @@ export default function UserContextMenu({
       )}
 
       {/* Nothing available */}
-      {!canManageRoles && !canKick && !canBan && !canMute && (
+      {!canManageRoles && !canKick && !canBan && !canMute && !onOpenProfile && !(canMuteVoiceMembers || canDeafenVoiceMembers) && (
         <div className="ctx-menu-empty">Нет доступных действий</div>
       )}
     </div>

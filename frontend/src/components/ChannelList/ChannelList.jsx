@@ -9,17 +9,22 @@ import { HeadphonesOff } from '../ui/HeadphonesOff';
 export default function ChannelList({
   server, channels, selectedChannelId, onSelectChannel,
   onCreateChannel, onCreateVoiceChannel, onDeleteChannel, onOpenSettings,
-  onLeaveServer, onShowInvite, canManageChannels,
+  onLeaveServer, onShowInvite, canManageChannels, canCreateVoiceChannel,
   isOwner, canOpenSettings, mentionsByChannel = {},
   onOpenChannelSettings,
   onJoinVoiceChannel,
   currentVoiceChannelId,
   voiceRosters = {},
   voiceSpeakingUsers = {},
+  members = [],
+  onOpenProfile,
+  onOpenVoiceContextMenu,
   isMaster, allServers = [], onSelectServerPreview,
-  currentUsername
+  currentUsername, currentDisplayName
 }) {
+  const displayName = currentDisplayName || currentUsername;
   const getInitial = (name) => name ? name.charAt(0).toUpperCase() : '?';
+  const getAvatarUrl = (url) => url ? (url.startsWith('http') ? url : (typeof window !== 'undefined' && window.__API_BASE__ ? window.__API_BASE__ : '') + url) : null;
   const getAvatarColor = (name) => {
     const colors = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#3ba55c', '#faa61a', '#e67e22'];
     let hash = 0;
@@ -63,10 +68,10 @@ export default function ChannelList({
       <div className="channel-list">
         <div className="channel-list-header"><span>Rucord</span></div>
         <div className="channel-list-empty home-screen">
-          {currentUsername && (
-            <p className="home-welcome">Привет, <strong>{currentUsername}</strong>!</p>
+          {displayName && (
+            <p className="home-welcome">Привет, <strong>{displayName}</strong>!</p>
           )}
-          {!currentUsername && <p className="home-welcome">Выберите сервер или создайте новый</p>}
+          {!displayName && <p className="home-welcome">Выберите сервер или создайте новый</p>}
 
           {isMaster && allServers.length > 0 && (
             <div className="all-servers-block">
@@ -166,7 +171,7 @@ export default function ChannelList({
 
       <div className="channel-category" style={{ marginTop: '16px' }}>
         <span className="channel-category-name">Голосовые каналы</span>
-        {canManageChannels && onCreateVoiceChannel && (
+        {(canCreateVoiceChannel ?? canManageChannels) && onCreateVoiceChannel && (
           <button className="channel-add-btn" onClick={() => setShowCreateVoiceForm(!showCreateVoiceForm)} title="Создать голосовой канал"><Plus size={18} /></button>
         )}
       </div>
@@ -196,30 +201,38 @@ export default function ChannelList({
             </div>
             {roster.length > 0 && (
               <div className="voice-channel-users">
-                {roster.map(p => (
+                {roster.map(p => {
+                  const member = members.find(m => m.user_id === p.userId);
+                  const avatarUrl = getAvatarUrl(member?.avatar_url);
+                  const isForceMuted = !!p.force_muted;
+                  const isForceDeafened = !!p.force_deafened;
+                  return (
                   <div
                     key={p.userId}
-                    className={`voice-channel-user ${voiceSpeakingUsers[p.userId] ? 'voice-channel-user-speaking' : ''}`}
+                    className={`voice-channel-user ${voiceSpeakingUsers[p.userId] ? 'voice-channel-user-speaking' : ''} voice-channel-user-clickable`}
+                    onClick={(e) => { e.stopPropagation(); if (member && onOpenProfile) onOpenProfile(member); }}
+                    onContextMenu={(e) => member && onOpenVoiceContextMenu && onOpenVoiceContextMenu(e, member, channel.id)}
                   >
                     <div
                       className="voice-channel-user-avatar"
-                      style={{ backgroundColor: getAvatarColor(p.username) }}
+                      style={avatarUrl ? { backgroundImage: `url(${avatarUrl})`, backgroundColor: 'transparent' } : { backgroundColor: getAvatarColor(p.username) }}
                     >
-                      {getInitial(p.username)}
+                      {!avatarUrl && getInitial(p.username)}
                     </div>
                     <span className="voice-channel-user-name">{p.username}</span>
                     {p.muted && (
-                      <span className="voice-channel-user-muted" title="Микрофон выключен" aria-hidden>
+                      <span className={`voice-channel-user-muted ${isForceMuted ? 'voice-channel-user-force' : ''}`} title={isForceMuted ? 'Микрофон выключен модератором' : 'Микрофон выключен'} aria-hidden>
                         <MicOff className="icon-mic-off" size={14} />
                       </span>
                     )}
                     {p.deafened && (
-                      <span className="voice-channel-user-deafened" title="Звук выключен" aria-hidden>
+                      <span className={`voice-channel-user-deafened ${isForceDeafened ? 'voice-channel-user-force' : ''}`} title={isForceDeafened ? 'Звук выключен модератором' : 'Звук выключен'} aria-hidden>
                         <HeadphonesOff className="icon-headphone-off" size={14} />
                       </span>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

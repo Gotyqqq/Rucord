@@ -74,7 +74,7 @@ export default function ServerList({
         >
           <LogOut className="logout-btn-icon" size={22} strokeWidth={2.5} />
           <span className="logout-btn-text">Выйти</span>
-          {user?.username && <span className="logout-btn-username">{user.username}</span>}
+          {(user?.display_name || user?.username) && <span className="logout-btn-username">{user.display_name || user.username}</span>}
         </button>
       </div>
 
@@ -83,7 +83,7 @@ export default function ServerList({
           <div className="logout-confirm-modal" onClick={(e) => e.stopPropagation()}>
             <h3 className="logout-confirm-title">Выйти из аккаунта?</h3>
             <p className="logout-confirm-text">
-              Вы выйдете из аккаунта {user?.username ? `«${user.username}»` : ''} на этом устройстве. Чтобы снова зайти, потребуется войти или зарегистрироваться.
+              Вы выйдете из аккаунта {user?.username ? `«${user.display_name || user.username}»` : ''} на этом устройстве. Чтобы снова зайти, потребуется войти или зарегистрироваться.
             </p>
             <div className="logout-confirm-actions">
               <button type="button" className="logout-confirm-btn logout-confirm-cancel" onClick={() => setShowLogoutConfirm(false)}>Отмена</button>

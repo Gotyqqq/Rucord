@@ -1,19 +1,30 @@
 // ============================================================
 // UserProfilePopup.jsx — Попап профиля пользователя
-// Показывает инфо + быстрое сообщение / кнопка ЛС
+// Отображаемое имя (display_name) сверху, уникальный username снизу
+// Редактирование ника только для себя: для сервера или для всех
 // ============================================================
 
 import React, { useState } from 'react';
+import { Pencil, Hash } from 'lucide-react';
+import { api } from '../../utils/api';
+import { getAvatarUrl } from '../../utils/avatar';
 
 export default function UserProfilePopup({
-  targetUser, onClose, onOpenDM, onSendQuickDM,
-  onlineStatus = 'offline', currentUserId
+  targetUser, serverId, onClose, onOpenDM, onSendQuickDM, onDisplayNameUpdated,
+  onlineStatus = 'offline', currentUserId, token
 }) {
   const [quickMsg, setQuickMsg] = useState('');
+  const [editingNick, setEditingNick] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const [editScope, setEditScope] = useState('server'); // 'server' | 'global'
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   if (!targetUser) return null;
 
   const isMe = targetUser.user_id === currentUserId;
+  const displayName = targetUser.display_name || targetUser.username;
+  const showEditNick = isMe && token;
 
   const getInitial = (name) => name ? name.charAt(0).toUpperCase() : '?';
   const getAvatarColor = (name) => {
@@ -36,28 +47,127 @@ export default function UserProfilePopup({
     }
   };
 
+  const startEditNick = () => {
+    setEditValue(displayName || '');
+    setEditScope(serverId ? 'server' : 'global');
+    setError('');
+    setEditingNick(true);
+  };
+
+  const saveDisplayName = async () => {
+    setError('');
+    setSaving(true);
+    try {
+      const value = editValue.trim() || null;
+      if (editScope === 'global') {
+        await api.patch('/api/auth/me', { display_name: value }, token);
+      } else if (serverId) {
+        await api.patch(`/api/members/server/${serverId}/members/me`, { display_name: value, scope: 'server' }, token);
+      }
+      onDisplayNameUpdated?.();
+      setEditingNick(false);
+      targetUser.display_name = value;
+    } catch (e) {
+      setError(e.message || 'Ошибка сохранения');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setScopeGlobal = async () => {
+    setError('');
+    setSaving(true);
+    try {
+      const value = editValue.trim() || null;
+      await api.patch('/api/auth/me', { display_name: value }, token);
+      onDisplayNameUpdated?.();
+      setEditingNick(false);
+      targetUser.display_name = value;
+    } catch (e) {
+      setError(e.message || 'Ошибка сохранения');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setScopeServer = async () => {
+    if (!serverId) return;
+    setError('');
+    setSaving(true);
+    try {
+      const value = editValue.trim() || null;
+      await api.patch(`/api/members/server/${serverId}/members/me`, { display_name: value, scope: 'server' }, token);
+      onDisplayNameUpdated?.();
+      setEditingNick(false);
+      targetUser.display_name = value;
+    } catch (e) {
+      setError(e.message || 'Ошибка сохранения');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="profile-popup-overlay" onClick={onClose}>
       <div className="profile-popup" onClick={(e) => e.stopPropagation()}>
-        {/* Banner */}
         <div className="profile-banner" style={{ backgroundColor: getAvatarColor(targetUser.username) }} />
 
-        {/* Avatar */}
         <div className="profile-avatar-wrapper">
-          <div className="profile-avatar" style={{ backgroundColor: getAvatarColor(targetUser.username) }}>
-            {getInitial(targetUser.username)}
+          <div
+            className="profile-avatar"
+            style={(getAvatarUrl(targetUser.avatar_url) ? { backgroundImage: `url(${getAvatarUrl(targetUser.avatar_url)})`, backgroundColor: 'transparent' } : { backgroundColor: getAvatarColor(targetUser.username) })}
+          >
+            {!getAvatarUrl(targetUser.avatar_url) && getInitial(displayName)}
           </div>
           <span className="profile-status-dot" style={{ backgroundColor: statusColor }} />
         </div>
 
-        {/* Info */}
         <div className="profile-body">
           <div className="profile-name-section">
-            <h3 className="profile-username">
-              {targetUser.username}
-              {targetUser.is_owner && <span className="owner-crown-small"> 👑</span>}
-            </h3>
-            <span className="profile-status-text">{statusText}</span>
+            {!editingNick ? (
+              <>
+                <div className="profile-display-name-row">
+                  <h3 className="profile-display-name">
+                    {displayName}
+                    {targetUser.is_owner && <span className="owner-crown-small"> 👑</span>}
+                  </h3>
+                  {showEditNick && (
+                    <button type="button" className="profile-edit-nick-btn" onClick={startEditNick} title="Изменить отображаемое имя">
+                      <Pencil size={14} />
+                    </button>
+                  )}
+                </div>
+                <div className="profile-username-row">
+                  <Hash size={12} className="profile-username-hash" />
+                  <span className="profile-username-id">{targetUser.username}</span>
+                </div>
+              </>
+            ) : (
+              <div className="profile-edit-nick-form">
+                <input
+                  type="text"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  placeholder="Отображаемое имя"
+                  className="profile-edit-nick-input"
+                  autoFocus
+                />
+                {serverId ? (
+                  <div className="profile-edit-scope">
+                    <label><input type="radio" checked={editScope === 'server'} onChange={() => setEditScope('server')} /> Для этого сервера</label>
+                    <label><input type="radio" checked={editScope === 'global'} onChange={() => setEditScope('global')} /> Для всех серверов</label>
+                  </div>
+                ) : null}
+                {error && <div className="profile-edit-error">{error}</div>}
+                <div className="profile-edit-actions">
+                  <button type="button" className="profile-edit-cancel" onClick={() => { setEditingNick(false); setError(''); }}>Отмена</button>
+                  <button type="button" className="profile-edit-save" onClick={editScope === 'global' ? setScopeGlobal : setScopeServer} disabled={saving}>
+                    {saving ? 'Сохранение…' : 'Сохранить'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {!editingNick && <span className="profile-status-text">{statusText}</span>}
           </div>
 
           <div className="profile-divider" />
@@ -87,7 +197,6 @@ export default function UserProfilePopup({
 
           <div className="profile-divider" />
 
-          {/* Quick message or DM button */}
           {!isMe && (
             <div className="profile-dm-section">
               <form onSubmit={handleSendQuick} className="profile-quick-msg-form">
@@ -95,7 +204,7 @@ export default function UserProfilePopup({
                   type="text"
                   value={quickMsg}
                   onChange={(e) => setQuickMsg(e.target.value)}
-                  placeholder={`Сообщение @${targetUser.username}`}
+                  placeholder={`Сообщение @${displayName}`}
                   className="profile-quick-msg-input"
                 />
                 <button type="submit" className="profile-quick-msg-send" disabled={!quickMsg.trim()}>➤</button>

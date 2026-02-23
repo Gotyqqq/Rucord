@@ -10,6 +10,7 @@ const { getUserPermissions, addMasterToServer } = require('../utils/permissions'
 const { isMaster } = require('../utils/master');
 
 let ioInstance = null;
+let applyVoiceForceForServerMuteRef = null;
 
 const onlineUsers = new Map(); // userId -> { status, lastActivity, socketId }
 const slowmodeCooldowns = new Map(); // `${userId}_${channelId}` -> timestamp
@@ -39,9 +40,22 @@ function isUserMuted(serverId, userId) {
   const expiresAt = new Date(mute.expires_at + 'Z');
   if (expiresAt <= new Date()) {
     db.prepare('DELETE FROM server_mutes WHERE id = ?').run(mute.id);
+    if (applyVoiceForceForServerMuteRef) applyVoiceForceForServerMuteRef(serverId, userId, false);
     return false;
   }
   return true;
+}
+
+function getDisplayName(serverId, userId) {
+  const u = db.prepare('SELECT username, display_name FROM users WHERE id = ?').get(userId);
+  if (!u) return null;
+  const sm = db.prepare('SELECT display_name FROM server_members WHERE server_id = ? AND user_id = ?').get(serverId, userId);
+  return (sm && sm.display_name) || u.display_name || u.username;
+}
+
+function getDisplayNameGlobal(userId) {
+  const u = db.prepare('SELECT username, display_name FROM users WHERE id = ?').get(userId);
+  return u ? (u.display_name || u.username) : null;
 }
 
 function setupSocket(io) {
@@ -195,7 +209,15 @@ function setupSocket(io) {
         }
       }
 
-      const message = db.prepare(`SELECT m.*, u.username, u.avatar_url FROM messages m JOIN users u ON u.id = m.user_id WHERE m.id = ?`).get(msgId);
+      const message = db.prepare(`
+        SELECT m.*, u.username, u.avatar_url,
+          COALESCE(sm.display_name, u.display_name, u.username) as display_username
+        FROM messages m
+        JOIN users u ON u.id = m.user_id
+        JOIN channels ch ON ch.id = m.channel_id
+        LEFT JOIN server_members sm ON sm.server_id = ch.server_id AND sm.user_id = m.user_id
+        WHERE m.id = ?
+      `).get(msgId);
       const attRows = db.prepare('SELECT file_path, original_name, mime_type FROM message_attachments WHERE message_id = ?').all(msgId);
       message.attachments = attRows.map(a => ({
         url: a.file_path.startsWith('http') ? a.file_path : '/api/uploads/' + a.file_path,
@@ -210,6 +232,7 @@ function setupSocket(io) {
       const usersInChannel = getUserIdsByRoom(`channel_${channelId}`);
       const serverData = db.prepare('SELECT * FROM servers WHERE id = ?').get(channel.server_id);
       const trimmedContent = (content || '').trim();
+      const fromDisplayName = message.display_username || socket.user.username;
 
       const sendMention = (targetUserId) => {
         if (targetUserId === socket.user.id) return;
@@ -218,7 +241,7 @@ function setupSocket(io) {
           serverId: channel.server_id,
           serverName: serverData ? serverData.name : '',
           channelId, channelName: channel.name,
-          fromUser: socket.user.username,
+          fromUser: fromDisplayName,
           content: trimmedContent
         });
       };
@@ -237,8 +260,9 @@ function setupSocket(io) {
           const mentionedNames = mentions.map(m => m.slice(1).toLowerCase());
           for (const name of mentionedNames) {
             const mentionedUser = db.prepare(
-              'SELECT u.id FROM users u JOIN server_members sm ON sm.user_id = u.id WHERE LOWER(u.username) = ? AND sm.server_id = ?'
-            ).get(name, channel.server_id);
+              `SELECT u.id FROM users u JOIN server_members sm ON sm.user_id = u.id WHERE sm.server_id = ?
+               AND (LOWER(u.username) = ? OR LOWER(COALESCE(sm.display_name, u.display_name, u.username)) = ?)`
+            ).get(channel.server_id, name, name);
             if (mentionedUser) sendMention(mentionedUser.id);
           }
         }
@@ -269,7 +293,15 @@ function setupSocket(io) {
         }
       }
       db.prepare('UPDATE messages SET content = ?, edited = 1 WHERE id = ?').run(content.trim(), messageId);
-      const updated = db.prepare(`SELECT m.*, u.username, u.avatar_url FROM messages m JOIN users u ON u.id = m.user_id WHERE m.id = ?`).get(messageId);
+      const updated = db.prepare(`
+        SELECT m.*, u.username, u.avatar_url,
+          COALESCE(sm.display_name, u.display_name, u.username) as display_username
+        FROM messages m
+        JOIN users u ON u.id = m.user_id
+        JOIN channels ch ON ch.id = m.channel_id
+        LEFT JOIN server_members sm ON sm.server_id = ch.server_id AND sm.user_id = m.user_id
+        WHERE m.id = ?
+      `).get(messageId);
       const attRows = db.prepare('SELECT file_path, original_name, mime_type FROM message_attachments WHERE message_id = ?').all(messageId);
       updated.attachments = attRows.map(a => ({ url: a.file_path.startsWith('http') ? a.file_path : '/api/uploads/' + a.file_path, original_name: a.original_name, mime_type: a.mime_type }));
       const reactRows = db.prepare('SELECT emoji, user_id FROM message_reactions WHERE message_id = ?').all(messageId);
@@ -359,22 +391,38 @@ function setupSocket(io) {
       const result = db.prepare('INSERT INTO direct_messages (from_user_id, to_user_id, content) VALUES (?, ?, ?)').run(socket.user.id, toUserId, content.trim());
       const dm = db.prepare('SELECT * FROM direct_messages WHERE id = ?').get(result.lastInsertRowid);
 
-      const msg = { ...dm, from_username: socket.user.username, to_username: toUser.username };
+      const fromDisplay = getDisplayNameGlobal(socket.user.id);
+      const toDisplay = getDisplayNameGlobal(toUserId);
+      const msg = { ...dm, from_username: fromDisplay, to_username: toDisplay };
       io.to(`user_${socket.user.id}`).emit('new_dm', msg);
       io.to(`user_${toUserId}`).emit('new_dm', msg);
 
       // DM notification for recipient
       io.to(`user_${toUserId}`).emit('dm_notification', {
         fromUserId: socket.user.id,
-        fromUsername: socket.user.username,
+        fromUsername: fromDisplay,
         content: content.trim()
       });
     });
 
     socket.on('typing', (data) => {
       const { channelId } = data;
-      socket.to(`channel_${channelId}`).emit('user_typing', { channelId, username: socket.user.username, userId: socket.user.id });
+      const channel = db.prepare('SELECT server_id FROM channels WHERE id = ?').get(channelId);
+      const displayName = channel ? getDisplayName(channel.server_id, socket.user.id) : getDisplayNameGlobal(socket.user.id);
+      socket.to(`channel_${channelId}`).emit('user_typing', { channelId, username: displayName || socket.user.username, userId: socket.user.id });
     });
+
+    function getVoiceForceState(serverId, userId) {
+      const sm = db.prepare('SELECT voice_force_muted, voice_force_deafened FROM server_members WHERE server_id = ? AND user_id = ?').get(serverId, userId);
+      return { force_muted: !!(sm && sm.voice_force_muted), force_deafened: !!(sm && sm.voice_force_deafened) };
+    }
+
+    function buildVoiceParticipant(serverId, userId, username, muted, deafened) {
+      const force = getVoiceForceState(serverId, userId);
+      const effectiveMuted = force.force_muted || muted;
+      const effectiveDeafened = force.force_deafened || deafened;
+      return { userId, username, muted: effectiveMuted, deafened: effectiveDeafened, force_muted: force.force_muted, force_deafened: force.force_deafened };
+    }
 
     function broadcastVoiceRoster(channelId, serverId) {
       const room = ioInstance.sockets.adapter.rooms.get(`voice_${channelId}`);
@@ -385,11 +433,14 @@ function setupSocket(io) {
           if (s && s.user) {
             const muted = voiceMutedMap.get(`${channelId}_${s.user.id}`) ?? false;
             const deafened = voiceDeafenedMap.get(`${channelId}_${s.user.id}`) ?? false;
-            participants.push({ userId: s.user.id, username: s.user.username, muted, deafened });
+            const username = getDisplayName(serverId, s.user.id) || s.user.username;
+            participants.push(buildVoiceParticipant(serverId, s.user.id, username, muted, deafened));
           }
         }
       }
-      ioInstance.to(`server_${serverId}`).emit('voice_roster_update', { channelId, participants });
+      const payload = { channelId, participants };
+      ioInstance.to(`server_${serverId}`).emit('voice_roster_update', payload);
+      ioInstance.to(`voice_${channelId}`).emit('voice_roster_update', payload);
     }
 
     // ---- Голосовые каналы ----
@@ -402,6 +453,15 @@ function setupSocket(io) {
         member = db.prepare('SELECT id FROM server_members WHERE server_id = ? AND user_id = ?').get(channel.server_id, socket.user.id);
       }
       if (!member) return;
+      const perms = getUserPermissions(channel.server_id, socket.user.id);
+      if (!perms.speak_in_voice) {
+        socket.emit('permission_error', { message: 'Нет права говорить в голосовом канале' });
+        return;
+      }
+      if (isUserMuted(channel.server_id, socket.user.id)) {
+        socket.emit('permission_error', { message: 'Вы замьючены и не можете заходить в голосовые каналы' });
+        return;
+      }
       const roomName = `voice_${channelId}`;
       for (const r of socket.rooms) {
         if (r.startsWith('voice_')) {
@@ -411,8 +471,9 @@ function setupSocket(io) {
           socket.leave(r);
         }
       }
-      voiceMutedMap.set(`${channelId}_${socket.user.id}`, false);
-      voiceDeafenedMap.set(`${channelId}_${socket.user.id}`, false);
+      const myForce = getVoiceForceState(channel.server_id, socket.user.id);
+      voiceMutedMap.set(`${channelId}_${socket.user.id}`, myForce.force_muted);
+      voiceDeafenedMap.set(`${channelId}_${socket.user.id}`, myForce.force_deafened);
       socket.join(roomName);
       const room = ioInstance.sockets.adapter.rooms.get(roomName);
       const participants = [];
@@ -422,29 +483,118 @@ function setupSocket(io) {
           if (s && s.user && s.user.id !== socket.user.id) {
             const muted = voiceMutedMap.get(`${channelId}_${s.user.id}`) ?? false;
             const deafened = voiceDeafenedMap.get(`${channelId}_${s.user.id}`) ?? false;
-            participants.push({ userId: s.user.id, username: s.user.username, muted, deafened });
+            const username = getDisplayName(channel.server_id, s.user.id) || s.user.username;
+            participants.push(buildVoiceParticipant(channel.server_id, s.user.id, username, muted, deafened));
           }
         }
       }
+      const myDisplayName = getDisplayName(channel.server_id, socket.user.id) || socket.user.username;
+      const myMuted = voiceMutedMap.get(`${channelId}_${socket.user.id}`) ?? false;
+      const myDeafened = voiceDeafenedMap.get(`${channelId}_${socket.user.id}`) ?? false;
       socket.emit('voice_participants', { channelId, participants });
-      socket.to(roomName).emit('voice_participant_joined', { channelId, userId: socket.user.id, username: socket.user.username, muted: false, deafened: false });
+      socket.to(roomName).emit('voice_participant_joined', {
+        channelId, userId: socket.user.id, username: myDisplayName,
+        muted: myMuted, deafened: myDeafened, force_muted: myForce.force_muted, force_deafened: myForce.force_deafened
+      });
       broadcastVoiceRoster(channelId, channel.server_id);
     });
 
     socket.on('voice_muted', ({ channelId, muted }) => {
       const channel = db.prepare('SELECT id, server_id FROM channels WHERE id = ? AND type = ?').get(channelId, 'voice');
       if (!channel) return;
-      voiceMutedMap.set(`${channelId}_${socket.user.id}`, !!muted);
-      ioInstance.to(`voice_${channelId}`).emit('voice_muted', { userId: socket.user.id, muted: !!muted });
+      if (!getUserPermissions(channel.server_id, socket.user.id).speak_in_voice) return;
+      const force = getVoiceForceState(channel.server_id, socket.user.id);
+      const effectiveMuted = force.force_muted ? true : !!muted;
+      voiceMutedMap.set(`${channelId}_${socket.user.id}`, effectiveMuted);
+      ioInstance.to(`voice_${channelId}`).emit('voice_muted', { userId: socket.user.id, muted: effectiveMuted, force_muted: force.force_muted });
       broadcastVoiceRoster(channelId, channel.server_id);
     });
 
     socket.on('voice_deafened', ({ channelId, deafened }) => {
       const channel = db.prepare('SELECT id, server_id FROM channels WHERE id = ? AND type = ?').get(channelId, 'voice');
       if (!channel) return;
-      voiceDeafenedMap.set(`${channelId}_${socket.user.id}`, !!deafened);
-      ioInstance.to(`voice_${channelId}`).emit('voice_deafened', { userId: socket.user.id, deafened: !!deafened });
+      if (!getUserPermissions(channel.server_id, socket.user.id).speak_in_voice) return;
+      const force = getVoiceForceState(channel.server_id, socket.user.id);
+      const effectiveDeafened = force.force_deafened ? true : !!deafened;
+      voiceDeafenedMap.set(`${channelId}_${socket.user.id}`, effectiveDeafened);
+      ioInstance.to(`voice_${channelId}`).emit('voice_deafened', { userId: socket.user.id, deafened: effectiveDeafened, force_deafened: force.force_deafened });
       broadcastVoiceRoster(channelId, channel.server_id);
+    });
+
+    socket.on('voice_force_mute', ({ channelId, targetUserId, muted }) => {
+      const channel = db.prepare('SELECT id, server_id FROM channels WHERE id = ? AND type = ?').get(channelId, 'voice');
+      if (!channel) return;
+      const perms = getUserPermissions(channel.server_id, socket.user.id);
+      if (!perms.mute_members) return;
+      const member = db.prepare('SELECT id FROM server_members WHERE server_id = ? AND user_id = ?').get(channel.server_id, targetUserId);
+      if (!member) return;
+      db.prepare('UPDATE server_members SET voice_force_muted = ? WHERE server_id = ? AND user_id = ?').run(muted ? 1 : 0, channel.server_id, targetUserId);
+      if (muted) voiceMutedMap.set(`${channelId}_${targetUserId}`, true);
+      else voiceMutedMap.set(`${channelId}_${targetUserId}`, false);
+      ioInstance.to(`voice_${channelId}`).emit('voice_force_muted', { userId: targetUserId, muted: !!muted });
+      broadcastVoiceRoster(channelId, channel.server_id);
+    });
+
+    socket.on('voice_force_deafen', ({ channelId, targetUserId, deafened }) => {
+      const channel = db.prepare('SELECT id, server_id FROM channels WHERE id = ? AND type = ?').get(channelId, 'voice');
+      if (!channel) return;
+      const perms = getUserPermissions(channel.server_id, socket.user.id);
+      if (!perms.deafen_members) return;
+      const member = db.prepare('SELECT id FROM server_members WHERE server_id = ? AND user_id = ?').get(channel.server_id, targetUserId);
+      if (!member) return;
+      db.prepare('UPDATE server_members SET voice_force_deafened = ? WHERE server_id = ? AND user_id = ?').run(deafened ? 1 : 0, channel.server_id, targetUserId);
+      if (deafened) voiceDeafenedMap.set(`${channelId}_${targetUserId}`, true);
+      else voiceDeafenedMap.set(`${channelId}_${targetUserId}`, false);
+      ioInstance.to(`voice_${channelId}`).emit('voice_force_deafened', { userId: targetUserId, deafened: !!deafened });
+      broadcastVoiceRoster(channelId, channel.server_id);
+    });
+
+    // Применить принудительный мут/деф к сокету, если пользователь уже в голосовом канале на этом сервере
+    function applyVoiceForceToSocketIfInVoice(serverId, targetUserId, setMuted, setDeafened) {
+      const voiceChannels = db.prepare('SELECT id FROM channels WHERE server_id = ? AND type = ?').all(serverId, 'voice');
+      for (const ch of voiceChannels) {
+        const room = ioInstance.sockets.adapter.rooms.get(`voice_${ch.id}`);
+        if (!room) continue;
+        for (const sid of room) {
+          const s = ioInstance.sockets.sockets.get(sid);
+          if (s && s.user && s.user.id === targetUserId) {
+            if (setMuted !== undefined) {
+              voiceMutedMap.set(`${ch.id}_${targetUserId}`, !!setMuted);
+              ioInstance.to(`voice_${ch.id}`).emit('voice_force_muted', { userId: targetUserId, muted: !!setMuted });
+            }
+            if (setDeafened !== undefined) {
+              voiceDeafenedMap.set(`${ch.id}_${targetUserId}`, !!setDeafened);
+              ioInstance.to(`voice_${ch.id}`).emit('voice_force_deafened', { userId: targetUserId, deafened: !!setDeafened });
+            }
+            broadcastVoiceRoster(ch.id, serverId);
+            return;
+          }
+        }
+      }
+    }
+
+    socket.on('voice_force_mute_user', ({ serverId: sid, targetUserId, muted }) => {
+      const serverId = sid;
+      if (!serverId || !targetUserId) return;
+      const perms = getUserPermissions(serverId, socket.user.id);
+      if (!perms.mute_members) return;
+      const member = db.prepare('SELECT id FROM server_members WHERE server_id = ? AND user_id = ?').get(serverId, targetUserId);
+      if (!member) return;
+      db.prepare('UPDATE server_members SET voice_force_muted = ? WHERE server_id = ? AND user_id = ?').run(muted ? 1 : 0, serverId, targetUserId);
+      applyVoiceForceToSocketIfInVoice(serverId, targetUserId, muted, undefined);
+      ioInstance.to(`server_${serverId}`).emit('voice_force_muted', { userId: targetUserId, muted: !!muted });
+    });
+
+    socket.on('voice_force_deafen_user', ({ serverId: sid, targetUserId, deafened }) => {
+      const serverId = sid;
+      if (!serverId || !targetUserId) return;
+      const perms = getUserPermissions(serverId, socket.user.id);
+      if (!perms.deafen_members) return;
+      const member = db.prepare('SELECT id FROM server_members WHERE server_id = ? AND user_id = ?').get(serverId, targetUserId);
+      if (!member) return;
+      db.prepare('UPDATE server_members SET voice_force_deafened = ? WHERE server_id = ? AND user_id = ?').run(deafened ? 1 : 0, serverId, targetUserId);
+      applyVoiceForceToSocketIfInVoice(serverId, targetUserId, undefined, deafened);
+      ioInstance.to(`server_${serverId}`).emit('voice_force_deafened', { userId: targetUserId, deafened: !!deafened });
     });
 
     socket.on('leave_voice_channel', (channelId) => {
@@ -460,24 +610,27 @@ function setupSocket(io) {
       const { toUserId, signal } = data;
       if (toUserId == null || toUserId === '' || !signal) return;
       // Validate both users share a voice channel
-      let shareRoom = false;
+      let sharedChannelId = null;
       for (const r of socket.rooms) {
         if (r.startsWith('voice_')) {
           const room = ioInstance.sockets.adapter.rooms.get(r);
           if (room) {
             for (const sid of room) {
               const s = ioInstance.sockets.sockets.get(sid);
-              if (s && s.user && s.user.id === Number(toUserId)) { shareRoom = true; break; }
+              if (s && s.user && s.user.id === Number(toUserId)) { sharedChannelId = r.replace('voice_', ''); break; }
             }
           }
-          if (shareRoom) break;
+          if (sharedChannelId) break;
         }
       }
-      if (!shareRoom) return;
+      if (!sharedChannelId) return;
+      const channelId = sharedChannelId;
+      const ch = db.prepare('SELECT server_id FROM channels WHERE id = ?').get(channelId);
+      const fromDisplay = ch ? getDisplayName(ch.server_id, socket.user.id) : getDisplayNameGlobal(socket.user.id);
       const targetRoom = `user_${Number(toUserId)}`;
       ioInstance.to(targetRoom).emit('voice_signal', {
         fromUserId: socket.user.id,
-        fromUsername: socket.user.username,
+        fromUsername: fromDisplay || socket.user.username,
         signal
       });
     });
@@ -495,7 +648,8 @@ function setupSocket(io) {
             if (s && s.user) {
               const muted = voiceMutedMap.get(`${ch.id}_${s.user.id}`) ?? false;
               const deafened = voiceDeafenedMap.get(`${ch.id}_${s.user.id}`) ?? false;
-              rosters[ch.id].push({ userId: s.user.id, username: s.user.username, muted, deafened });
+              const username = getDisplayName(serverId, s.user.id) || s.user.username;
+              rosters[ch.id].push(buildVoiceParticipant(serverId, s.user.id, username, muted, deafened));
             }
           }
         }
@@ -504,12 +658,13 @@ function setupSocket(io) {
     });
 
     socket.on('voice_speaking', ({ channelId, speaking }) => {
-      const channel = db.prepare('SELECT id FROM channels WHERE id = ? AND type = ?').get(channelId, 'voice');
+      const channel = db.prepare('SELECT id, server_id FROM channels WHERE id = ? AND type = ?').get(channelId, 'voice');
       if (!channel) return;
+      const displayName = getDisplayName(channel.server_id, socket.user.id) || socket.user.username;
       // Рассылаем всей комнате, включая отправителя — чтобы у говорящего тоже появлялся зелёный кружок
       ioInstance.to(`voice_${channelId}`).emit('voice_speaking', {
         userId: socket.user.id,
-        username: socket.user.username,
+        username: displayName,
         speaking: !!speaking
       });
     });
@@ -530,6 +685,16 @@ function setupSocket(io) {
       broadcastPresence(socket.user.id, 'offline');
     });
   });
+
+  applyVoiceForceForServerMuteRef = function (serverId, userId, muted) {
+    if (!serverId || !userId) return;
+    db.prepare('UPDATE server_members SET voice_force_muted = ?, voice_force_deafened = ? WHERE server_id = ? AND user_id = ?').run(muted ? 1 : 0, muted ? 1 : 0, serverId, userId);
+    applyVoiceForceToSocketIfInVoice(serverId, userId, muted, muted);
+    if (ioInstance) {
+      ioInstance.to(`server_${serverId}`).emit('voice_force_muted', { userId, muted: !!muted });
+      ioInstance.to(`server_${serverId}`).emit('voice_force_deafened', { userId, deafened: !!muted });
+    }
+  };
 }
 
 function broadcastPresence(userId, status) {
@@ -547,3 +712,6 @@ function notifyServer(serverId, event, data) {
 module.exports = setupSocket;
 module.exports.notifyServer = notifyServer;
 module.exports.getOnlineUsers = getOnlineUsers;
+module.exports.applyVoiceForceForServerMute = function (serverId, userId, muted) {
+  if (applyVoiceForceForServerMuteRef) applyVoiceForceForServerMuteRef(serverId, userId, muted);
+};

@@ -3,7 +3,7 @@
 // POST /api/auth/register — создать аккаунт
 // POST /api/auth/login    — войти в аккаунт
 // GET  /api/auth/me        — получить данные текущего пользователя
-// PATCH /api/auth/me       — обновить профиль (username, avatar_url)
+// PATCH /api/auth/me       — обновить профиль (display_name, не username — он неизменяемый)
 // POST /api/auth/me/avatar — загрузить аватар (multipart, макс. 5 МБ, изображение или GIF)
 // ============================================================
 
@@ -91,7 +91,8 @@ router.post('/register', (req, res) => {
         id: result.lastInsertRowid,
         username,
         email,
-        avatar_url: null
+        avatar_url: null,
+        display_name: null
       }
     });
   } catch (err) {
@@ -135,7 +136,8 @@ router.post('/login', (req, res) => {
         id: user.id,
         username: user.username,
         email: user.email,
-        avatar_url: user.avatar_url
+        avatar_url: user.avatar_url,
+        display_name: user.display_name || null
       }
     });
   } catch (err) {
@@ -148,7 +150,7 @@ router.post('/login', (req, res) => {
 router.get('/me', authMiddleware, (req, res) => {
   try {
     const user = db.prepare(
-      'SELECT id, username, email, avatar_url, created_at FROM users WHERE id = ?'
+      'SELECT id, username, email, avatar_url, display_name, created_at FROM users WHERE id = ?'
     ).get(req.user.id);
 
     if (!user) {
@@ -163,19 +165,18 @@ router.get('/me', authMiddleware, (req, res) => {
   }
 });
 
-// ---- Обновить профиль (username) ----
+// ---- Обновить профиль (только display_name; username неизменяемый) ----
 router.patch('/me', authMiddleware, (req, res) => {
   try {
-    const { username } = req.body;
-    if (username !== undefined) {
-      if (typeof username !== 'string' || username.length < 2 || username.length > 32) {
-        return res.status(400).json({ error: 'Имя должно быть от 2 до 32 символов' });
+    const { display_name } = req.body;
+    if (display_name !== undefined) {
+      if (display_name !== null && (typeof display_name !== 'string' || display_name.length > 32)) {
+        return res.status(400).json({ error: 'Отображаемое имя не более 32 символов' });
       }
-      const existing = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, req.user.id);
-      if (existing) return res.status(400).json({ error: 'Пользователь с таким именем уже существует' });
-      db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, req.user.id);
+      const value = display_name === '' || display_name === null ? null : display_name.trim() || null;
+      db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(value, req.user.id);
     }
-    const user = db.prepare('SELECT id, username, email, avatar_url, created_at FROM users WHERE id = ?').get(req.user.id);
+    const user = db.prepare('SELECT id, username, email, avatar_url, display_name, created_at FROM users WHERE id = ?').get(req.user.id);
     const { isMaster } = require('../utils/master');
     res.json({ user: { ...user, is_master: isMaster(req.user.id) } });
   } catch (err) {
@@ -203,7 +204,7 @@ router.post('/me/avatar', authMiddleware, (req, res, next) => {
       const oldPath = path.join(__dirname, '..', 'uploads', 'avatars', path.basename(prev.avatar_url));
       try { fs.unlinkSync(oldPath); } catch (e) {}
     }
-    const user = db.prepare('SELECT id, username, email, avatar_url, created_at FROM users WHERE id = ?').get(req.user.id);
+    const user = db.prepare('SELECT id, username, email, avatar_url, display_name, created_at FROM users WHERE id = ?').get(req.user.id);
     const { isMaster } = require('../utils/master');
     res.json({ user: { ...user, is_master: isMaster(req.user.id) } });
   } catch (err) {

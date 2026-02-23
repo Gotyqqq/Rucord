@@ -6,7 +6,7 @@
 const express = require('express');
 const db = require('../database');
 const { authMiddleware } = require('../middleware/auth');
-const { notifyServer } = require('../socket/chat');
+const { notifyServer, applyVoiceForceForServerMute } = require('../socket/chat');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -65,7 +65,7 @@ router.get('/server/:serverId', (req, res) => {
     if (!self && !(isMaster(req.user.id) && preview)) return res.status(403).json({ error: 'Вы не участник этого сервера' });
 
     const members = db.prepare(`
-      SELECT sm.id as member_id, u.id as user_id, u.username, u.avatar_url, sm.joined_at, s.owner_id
+      SELECT sm.id as member_id, u.id as user_id, u.username, u.avatar_url, u.display_name as user_display_name, sm.display_name as server_display_name, sm.joined_at, s.owner_id, sm.voice_force_muted, sm.voice_force_deafened
       FROM server_members sm JOIN users u ON u.id = sm.user_id JOIN servers s ON s.id = sm.server_id
       WHERE sm.server_id = ? ORDER BY sm.joined_at ASC
     `).all(serverId);
@@ -82,16 +82,47 @@ router.get('/server/:serverId', (req, res) => {
       if (mute) {
         const exp = new Date(mute.expires_at + 'Z');
         if (exp > new Date()) { isMuted = true; muteExpiresAt = mute.expires_at; }
-        else { db.prepare('DELETE FROM server_mutes WHERE server_id = ? AND user_id = ?').run(serverId, m.user_id); }
+        else {
+          db.prepare('DELETE FROM server_mutes WHERE server_id = ? AND user_id = ?').run(serverId, m.user_id);
+          if (applyVoiceForceForServerMute) applyVoiceForceForServerMute(Number(serverId), m.user_id, false);
+        }
       }
+      const display_name = m.server_display_name || m.user_display_name || m.username;
       return {
-        ...m, is_owner: m.user_id === m.owner_id,
+        ...m,
+        display_name,
+        is_owner: m.user_id === m.owner_id,
         roles: getRoles.all(m.member_id),
         is_muted: isMuted, mute_expires_at: muteExpiresAt
       };
     });
 
     res.json({ members: result });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
+});
+
+// ---- PATCH /server/:serverId/members/me — отображаемое имя: для сервера или для всех ----
+router.patch('/server/:serverId/members/me', (req, res) => {
+  try {
+    const serverId = req.params.serverId;
+    const { display_name, scope } = req.body; // scope: 'server' | 'global'
+    const memberId = getMemberId(serverId, req.user.id);
+    if (!memberId && !isMaster(req.user.id)) return res.status(403).json({ error: 'Вы не участник этого сервера' });
+
+    const value = display_name === undefined || display_name === null || display_name === '' ? null : String(display_name).trim().slice(0, 32) || null;
+    if (scope === 'global') {
+      db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(value, req.user.id);
+    } else {
+      if (!memberId) return res.status(403).json({ error: 'Мастер не может задать ник только для сервера' });
+      if (!hasPermission(serverId, req.user.id, 'change_display_name')) return res.status(403).json({ error: 'Нет права менять отображаемое имя на этом сервере' });
+      db.prepare('UPDATE server_members SET display_name = ? WHERE id = ?').run(value, memberId);
+    }
+    notifyServer(Number(serverId), 'members_updated', { serverId: Number(serverId) });
+    const user = db.prepare('SELECT id, username, display_name FROM users WHERE id = ?').get(req.user.id);
+    const sm = memberId ? db.prepare('SELECT display_name FROM server_members WHERE id = ?').get(memberId) : null;
+    res.json({
+      display_name: scope === 'global' ? (user.display_name || user.username) : (sm?.display_name || user.display_name || user.username)
+    });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
 });
 
@@ -120,12 +151,14 @@ router.get('/server/:serverId/search', (req, res) => {
       return res.status(403).json({ error: 'Вы не участник этого сервера' });
     }
     const query = req.query.q || '';
+    const q = `%${query}%`;
     const members = db.prepare(`
-      SELECT u.id as user_id, u.username, u.avatar_url
+      SELECT u.id as user_id, u.username, u.avatar_url, u.display_name as user_display_name, sm.display_name as server_display_name
       FROM server_members sm JOIN users u ON u.id = sm.user_id
-      WHERE sm.server_id = ? AND u.username LIKE ? LIMIT 20
-    `).all(serverId, `%${query}%`);
-    res.json({ members });
+      WHERE sm.server_id = ? AND (u.username LIKE ? OR u.display_name LIKE ? OR sm.display_name LIKE ?) LIMIT 20
+    `).all(serverId, q, q, q);
+    const withDisplay = members.map(m => ({ ...m, display_name: m.server_display_name || m.user_display_name || m.username }));
+    res.json({ members: withDisplay });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
 });
 
@@ -227,6 +260,7 @@ router.post('/server/:serverId/mute/:userId', (req, res) => {
     }
 
     notifyServer(Number(serverId), 'members_updated', { serverId: Number(serverId) });
+    if (applyVoiceForceForServerMute) applyVoiceForceForServerMute(Number(serverId), targetUserId, true);
     res.json({ message: 'Участник замучен', expires_at: expiresAt });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
 });
@@ -235,8 +269,10 @@ router.delete('/server/:serverId/mute/:userId', (req, res) => {
   try {
     const { serverId, userId } = req.params;
     if (!hasPermission(serverId, req.user.id, 'mute_members')) return res.status(403).json({ error: 'Нет прав' });
-    db.prepare('DELETE FROM server_mutes WHERE server_id = ? AND user_id = ?').run(serverId, parseInt(userId));
+    const targetUserId = parseInt(userId);
+    db.prepare('DELETE FROM server_mutes WHERE server_id = ? AND user_id = ?').run(serverId, targetUserId);
     notifyServer(Number(serverId), 'members_updated', { serverId: Number(serverId) });
+    if (applyVoiceForceForServerMute) applyVoiceForceForServerMute(Number(serverId), targetUserId, false);
     res.json({ message: 'Мут снят' });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Внутренняя ошибка сервера' }); }
 });
@@ -287,7 +323,8 @@ router.post('/server/:serverId/roles', (req, res) => {
     const perms = permissions || {
       send_messages: true, read_messages: true, send_gifs: true, send_media: true,
       delete_messages: false, manage_server: false, manage_channels: false, manage_roles: false, kick_members: false,
-      ban_members: false, mute_members: false, edit_messages: false, administrator: false
+      ban_members: false, mute_members: false, deafen_members: false, edit_messages: false, administrator: false,
+      change_display_name: true, speak_in_voice: true, create_voice_channels: false
     };
 
     const myPerms = getUserPermissions(serverId, req.user.id);
@@ -321,7 +358,7 @@ router.put('/server/:serverId/roles/:roleId', (req, res) => {
 
     if (permissions && !isOwner(serverId, req.user.id)) {
       const myPerms = getUserPermissions(serverId, req.user.id);
-      const dangerous = ['administrator', 'manage_roles', 'manage_server', 'manage_channels', 'kick_members', 'ban_members', 'mute_members', 'edit_messages', 'delete_messages'];
+      const dangerous = ['administrator', 'manage_roles', 'manage_server', 'manage_channels', 'kick_members', 'ban_members', 'mute_members', 'deafen_members', 'edit_messages', 'delete_messages', 'change_display_name', 'speak_in_voice', 'create_voice_channels'];
       for (const perm of dangerous) {
         if (permissions[perm] && !myPerms[perm]) return res.status(403).json({ error: `Нет права "${perm}" для выдачи` });
       }

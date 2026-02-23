@@ -5,10 +5,13 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import EmojiPicker from 'emoji-picker-react';
-import { Smile, Send, Paperclip, Pencil, Trash2 } from 'lucide-react';
+import { Smile, Send, Paperclip, Pencil, Trash2, MicOff } from 'lucide-react';
+import twemoji from 'twemoji';
+import { TwemojiEmoji } from '../ui/TwemojiEmoji';
 import { api } from '../../utils/api';
 import { getSocket } from '../../utils/socket';
 import { getRecentEmojis, addRecentEmoji, EMOJI_ALL } from '../../utils/emoji';
+import { getAvatarUrl } from '../../utils/avatar';
 import 'photoswipe/style.css';
 
 function normalizeGifUrl(url) {
@@ -294,7 +297,7 @@ function LazyGifEmbed({ pageUrl, onLightbox, onAddToFavorites, onLongPress, isIn
 
 export default function Chat({
   channel, messages, onSendMessage, onEditMessage, onDeleteMessage,
-  typingUsers, currentUserId, members, currentUsername,
+  typingUsers, currentUserId, members, currentUsername, currentDisplayName,
   isOwner, slowmodeWait = 0, onOpenProfile, onlineStatuses = {},
   onContextMenu, token, readOnly = false,
   onCreateServer, onJoinServer
@@ -545,17 +548,19 @@ export default function Chat({
   };
 
   const filteredSpecial = specialMentions.filter(s => s.username.startsWith(mentionFilter));
-  const filteredMembers = (members || []).filter(m =>
-    m.username.toLowerCase().includes(mentionFilter) && m.user_id !== currentUserId
-  ).slice(0, 6);
+  const memberDisplayName = (m) => m.display_name || m.username;
+  const filteredMembers = (members || []).filter(m => {
+    const name = memberDisplayName(m);
+    return (name.toLowerCase().includes(mentionFilter) || m.username.toLowerCase().includes(mentionFilter)) && m.user_id !== currentUserId;
+  }).slice(0, 6).map(m => ({ ...m, displayLabel: memberDisplayName(m) }));
   const allMentionOptions = [...filteredSpecial, ...filteredMembers];
 
-  const insertMention = (username) => {
+  const insertMention = (labelOrUsername) => {
     const cursorPos = inputRef.current?.selectionStart || messageText.length;
     const textBefore = messageText.slice(0, cursorPos);
     const textAfter = messageText.slice(cursorPos);
     const lastAt = textBefore.lastIndexOf('@');
-    const newText = textBefore.slice(0, lastAt) + `@${username} ` + textAfter;
+    const newText = textBefore.slice(0, lastAt) + `@${labelOrUsername} ` + textAfter;
     setMessageText(newText);
     setShowMentions(false);
     setTimeout(() => inputRef.current?.focus(), 0);
@@ -736,7 +741,7 @@ export default function Chat({
     if (showMentions && allMentionOptions.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(prev => Math.min(prev + 1, allMentionOptions.length - 1)); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(prev => Math.max(prev - 1, 0)); return; }
-      if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); insertMention(allMentionOptions[mentionIndex].username); return; }
+      if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); const o = allMentionOptions[mentionIndex]; insertMention(o.displayLabel ?? o.username); return; }
       if (e.key === 'Escape') { setShowMentions(false); return; }
     }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e); }
@@ -759,6 +764,17 @@ export default function Chat({
     for (let i = 0; i < (name || '').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
     return colors[Math.abs(hash) % colors.length];
   };
+
+  const getAuthorTopRole = (msg) => {
+    const author = (members || []).find(m => m.user_id === msg.user_id);
+    if (!author?.roles?.length) return null;
+    const visible = author.roles.filter(r => r.name !== 'Владелец');
+    if (!visible.length) return null;
+    const sorted = [...visible].sort((a, b) => (b.position ?? 0) - (a.position ?? 0));
+    return sorted[0];
+  };
+  const getMessageUsernameColor = (msg) => getAuthorTopRole(msg)?.color || getAvatarColor(msg.display_username || msg.username);
+  const getMessageAuthorIsMuted = (msg) => (members || []).find(m => m.user_id === msg.user_id)?.is_muted ?? false;
 
   const formatTime = (dateStr) => {
     if (!dateStr) return '';
@@ -874,7 +890,7 @@ export default function Chat({
     for (const part of parts) {
       if (part.startsWith('@')) {
         const target = part.slice(1).toLowerCase();
-        const isMentionOfMe = currentUsername && target === currentUsername.toLowerCase();
+        const isMentionOfMe = (currentUsername && target === currentUsername.toLowerCase()) || (currentDisplayName && target === (currentDisplayName || '').toLowerCase());
         const isGroupMention = target === 'everyone' || target === 'here';
         result.push(
           <span key={key++} className={`mention ${isMentionOfMe || isGroupMention ? 'mention-me' : ''}`}>
@@ -925,7 +941,9 @@ export default function Chat({
             <a key={key++} href={seg} target="_blank" rel="noopener noreferrer" className="message-link">{seg}</a>
           );
         } else {
-          result.push(<span key={key++}>{seg}</span>);
+          const escaped = seg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          const html = twemoji.parse(escaped, { folder: 'svg', ext: '.svg', base: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/' });
+          result.push(<span key={key++} className="message-text-twemoji" dangerouslySetInnerHTML={{ __html: html }} />);
         }
       }
     }
@@ -1036,13 +1054,13 @@ export default function Chat({
       {reactionPickerMessageId != null && reactionPickerAnchor && createPortal(
         (() => {
           const GAP = 8;
-          const PICKER_ESTIMATED_HEIGHT = 220;
+          const PICKER_ESTIMATED_HEIGHT = 380;
           const spaceAbove = reactionPickerAnchor.top;
           const showAbove = typeof window !== 'undefined' && spaceAbove >= PICKER_ESTIMATED_HEIGHT + GAP;
           return (
         <div
           ref={reactionPickerPopoverRef}
-          className="message-reaction-picker message-reaction-picker-popover message-reaction-picker-anchored"
+          className="message-reaction-picker message-reaction-picker-popover message-reaction-picker-anchored message-reaction-picker-emoji-picker"
           style={{
             left: reactionPickerAnchor.left,
             ...(typeof window !== 'undefined'
@@ -1053,14 +1071,20 @@ export default function Chat({
             transform: 'none'
           }}
         >
-          {EMOJI_ALL.map((emoji, idx) => (
-            <button
-              key={idx}
-              type="button"
-              className="message-reaction-picker-btn"
-              onMouseDown={(e) => { e.preventDefault(); handleReactionAdd(reactionPickerMessageId, emoji); }}
-            >{emoji}</button>
-          ))}
+          <EmojiPicker
+            onEmojiClick={(data) => {
+              addRecentEmoji(data.emoji);
+              handleReactionAdd(reactionPickerMessageId, data.emoji);
+              setReactionPickerMessageId(null);
+              setReactionPickerAnchor(null);
+            }}
+            theme="dark"
+            emojiStyle="twitter"
+            width="100%"
+            height={360}
+            searchDisabled={false}
+            previewConfig={{ showPreview: false }}
+          />
         </div>
           );
         })(),
@@ -1088,11 +1112,11 @@ export default function Chat({
                   {showHeader ? (
                     <div
                       className="message-avatar clickable-avatar"
-                      style={{ backgroundColor: getAvatarColor(msg.username) }}
+                      style={(getAvatarUrl(msg.avatar_url) ? { backgroundImage: `url(${getAvatarUrl(msg.avatar_url)})`, backgroundColor: 'transparent' } : { backgroundColor: getAvatarColor(msg.display_username || msg.username) })}
                       onClick={() => handleUsernameClick(msg)}
                       onContextMenu={(e) => handleUsernameContext(e, msg)}
                     >
-                      {getInitial(msg.username)}
+                      {!getAvatarUrl(msg.avatar_url) && getInitial(msg.display_username || msg.username)}
                       <span className="message-avatar-status" style={{
                         backgroundColor: status === 'online' ? '#3ba55c' : status === 'idle' ? '#faa61a' : '#72767d'
                       }} />
@@ -1106,12 +1130,17 @@ export default function Chat({
                     <div className="message-header">
                       <span
                         className="message-username clickable-username"
-                        style={{ color: getAvatarColor(msg.username) }}
+                        style={{ color: getMessageUsernameColor(msg) }}
                         onClick={() => handleUsernameClick(msg)}
                         onContextMenu={(e) => handleUsernameContext(e, msg)}
                       >
-                        {msg.username}
+                        {msg.display_username || msg.username}
                       </span>
+                      {getMessageAuthorIsMuted(msg) && (
+                        <span className="message-muted-icon" title="Пользователь в муте">
+                          <MicOff size={14} aria-hidden />
+                        </span>
+                      )}
                       <span className="message-time">{formatTime(msg.created_at)}</span>
                     </div>
                   )}
@@ -1187,7 +1216,7 @@ export default function Chat({
                             className={`message-reaction ${hasUserReacted(r) ? 'message-reaction-me' : ''}`}
                             onClick={() => hasUserReacted(r) ? handleReactionRemove(msg.id, r.emoji) : handleReactionAdd(msg.id, r.emoji)}
                           >
-                            <span className="message-reaction-emoji">{r.emoji}</span>
+                            <TwemojiEmoji emoji={r.emoji} className="message-reaction-emoji" />
                             <span className="message-reaction-count">{r.count}</span>
                           </button>
                         ))}
@@ -1198,7 +1227,9 @@ export default function Chat({
                 {!isEditing && (
                   <div className="message-actions">
                     {(recentEmojis.length ? recentEmojis : EMOJI_ALL).slice(0, 3).map((emoji, i) => (
-                      <button key={i} type="button" className="message-action-btn message-action-emoji" onClick={() => handleReactionAdd(msg.id, emoji)} title="Добавить реакцию">{emoji}</button>
+                      <button key={i} type="button" className="message-action-btn message-action-emoji" onClick={() => handleReactionAdd(msg.id, emoji)} title="Добавить реакцию">
+                        <TwemojiEmoji emoji={emoji} className="message-action-emoji-twemoji" />
+                      </button>
                     ))}
                     <button
                       type="button"
@@ -1253,9 +1284,9 @@ export default function Chat({
           <div className="mention-popup">
             {allMentionOptions.map((m, i) => (
               <div
-                key={m.username}
+                key={m.special ? m.username : m.user_id}
                 className={`mention-item ${i === mentionIndex ? 'active' : ''} ${m.special ? 'mention-item-special' : ''}`}
-                onMouseDown={(e) => { e.preventDefault(); insertMention(m.username); }}
+                onMouseDown={(e) => { e.preventDefault(); insertMention(m.displayLabel ?? m.username); }}
                 onMouseEnter={() => setMentionIndex(i)}
               >
                 {m.special ? (
@@ -1268,10 +1299,10 @@ export default function Chat({
                   </>
                 ) : (
                   <>
-                    <div className="mention-avatar" style={{ backgroundColor: getAvatarColor(m.username) }}>
-                      {getInitial(m.username)}
+                    <div className="mention-avatar" style={{ backgroundColor: getAvatarColor(m.displayLabel || m.username) }}>
+                      {getInitial(m.displayLabel || m.username)}
                     </div>
-                    <span className="mention-name">{m.username}</span>
+                    <span className="mention-name">{m.displayLabel || m.username}</span>
                   </>
                 )}
               </div>

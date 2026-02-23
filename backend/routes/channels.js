@@ -94,20 +94,25 @@ router.post('/server/:serverId', (req, res) => {
   try {
     const serverId = req.params.serverId;
 
-    // Проверяем право на управление каналами
-    if (!checkPermission(serverId, req.user.id, 'manage_channels')) {
-      return res.status(403).json({ error: 'Нет прав на создание каналов' });
-    }
-
-    const { name, type } = req.body;
+        const { name, type } = req.body;
 
     if (!name || name.trim().length === 0) {
       return res.status(400).json({ error: 'Название канала обязательно' });
     }
 
+    const channelType = type === 'voice' ? 'voice' : 'text';
+    const canManageAll = checkPermission(serverId, req.user.id, 'manage_channels');
+    const canCreateVoice = checkPermission(serverId, req.user.id, 'create_voice_channels');
+    if (channelType === 'voice') {
+      if (!canManageAll && !canCreateVoice)
+        return res.status(403).json({ error: 'Нет прав на создание голосовых каналов' });
+    } else {
+      if (!canManageAll)
+        return res.status(403).json({ error: 'Нет прав на создание каналов' });
+    }
+
     // Приводим имя канала к нижнему регистру и заменяем пробелы на дефисы
     const channelName = name.trim().toLowerCase().replace(/\s+/g, '-');
-    const channelType = type === 'voice' ? 'voice' : 'text';
 
     const result = db.prepare(
       'INSERT INTO channels (server_id, name, type) VALUES (?, ?, ?)'

@@ -197,9 +197,13 @@ const database = {
     `);
 
     // Миграции
+    try { this._sqlDb.exec("ALTER TABLE users ADD COLUMN display_name TEXT"); } catch (e) {}
+    try { this._sqlDb.exec("ALTER TABLE server_members ADD COLUMN display_name TEXT"); } catch (e) {}
     try { this._sqlDb.exec("ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0"); } catch (e) {}
     try { this._sqlDb.exec("ALTER TABLE user_gif_favorites ADD COLUMN folder_id INTEGER DEFAULT NULL"); } catch (e) {}
     try { this._sqlDb.exec("ALTER TABLE channels ADD COLUMN slowmode INTEGER DEFAULT 0"); } catch (e) {}
+    try { this._sqlDb.exec("ALTER TABLE server_members ADD COLUMN voice_force_muted INTEGER DEFAULT 0"); } catch (e) {}
+    try { this._sqlDb.exec("ALTER TABLE server_members ADD COLUMN voice_force_deafened INTEGER DEFAULT 0"); } catch (e) {}
     try {
       const rows = this._sqlDb.prepare('SELECT id, user_id, gif_url FROM user_gif_favorites').all();
       const normalize = (url) => {

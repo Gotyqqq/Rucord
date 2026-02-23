@@ -13,7 +13,7 @@ import {
 
 const SENSITIVITY_BARS = 24;
 
-export default function UserSettingsModal({ onClose, token, inVoiceChannel = false, onStartMicTest, onStopMicTest }) {
+export default function UserSettingsModal({ onClose, token, servers = [], currentServerId, canChangeDisplayNameOnServer = true, onDisplayNameUpdated, inVoiceChannel = false, onStartMicTest, onStopMicTest }) {
   const { user, refreshUser } = useAuth();
   const [tab, setTab] = useState('voice'); // 'voice' | 'profile'
   const [inputDevices, setInputDevices] = useState([]);
@@ -32,7 +32,9 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarError, setAvatarError] = useState('');
   const [avatarLoading, setAvatarLoading] = useState(false);
-  const [usernameEdit, setUsernameEdit] = useState(user?.username || '');
+  const [displayNameEdit, setDisplayNameEdit] = useState(user?.display_name ?? user?.username ?? '');
+  const [displayNameScopeId, setDisplayNameScopeId] = useState(() => currentServerId || ''); // '' = для всех, number = server id
+  const [displayNameSaving, setDisplayNameSaving] = useState(false);
   const analyserRef = useRef(null);
   const streamRef = useRef(null);
   const animationRef = useRef(null);
@@ -97,8 +99,17 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
   }, [sensitivityThreshold]);
 
   useEffect(() => {
-    setUsernameEdit(user?.username || '');
-  }, [user?.username]);
+    setDisplayNameEdit(user?.display_name ?? user?.username ?? '');
+  }, [user?.display_name, user?.username]);
+
+  useEffect(() => {
+    const id = currentServerId || '';
+    const validId = (id === '' || id === null) || servers.some(s => s.id === id) ? id : '';
+    setDisplayNameScopeId(prev => {
+      if (prev !== '' && prev !== null && servers.some(s => s.id === prev)) return prev;
+      return validId;
+    });
+  }, [currentServerId, servers]);
 
   // Поток и индикатор уровня для вкладки «Голос» (чувствительность + проверка микрофона)
   useEffect(() => {
@@ -325,13 +336,22 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
     }
   };
 
-  const handleSaveUsername = async () => {
-    if (!usernameEdit.trim() || usernameEdit === user?.username) return;
+  const handleSaveDisplayName = async () => {
+    const value = displayNameEdit.trim() || null;
+    setDisplayNameSaving(true);
+    setAvatarError('');
     try {
-      await api.patch('/api/auth/me', { username: usernameEdit.trim() }, token);
+      if (!displayNameScopeId || displayNameScopeId === '') {
+        await api.patch('/api/auth/me', { display_name: value }, token);
+      } else {
+        await api.patch(`/api/members/server/${displayNameScopeId}/members/me`, { display_name: value, scope: 'server' }, token);
+      }
       await refreshUser();
+      onDisplayNameUpdated?.();
     } catch (err) {
       setAvatarError(err.message || 'Ошибка');
+    } finally {
+      setDisplayNameSaving(false);
     }
   };
 
@@ -358,7 +378,7 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
               >
                 {!avatarUrl && getInitial(user?.username)}
               </div>
-              <span className="user-settings-username">{user?.username || 'Пользователь'}</span>
+              <span className="user-settings-username">{user?.display_name || user?.username || 'Пользователь'}</span>
               <button type="button" className="user-settings-edit-profile" onClick={() => setTab('profile')}>
                 Редактировать профиль
               </button>
@@ -548,14 +568,47 @@ export default function UserSettingsModal({ onClose, token, inVoiceChannel = fal
                   {avatarError && <p className="user-settings-error">{avatarError}</p>}
                 </div>
                 <div className="user-settings-field">
-                  <label>Имя пользователя</label>
+                  <label>Имя пользователя (уникальный идентификатор, нельзя изменить)</label>
                   <input
                     type="text"
-                    value={usernameEdit}
-                    onChange={e => setUsernameEdit(e.target.value)}
+                    value={user?.username ?? ''}
+                    readOnly
+                    className="user-settings-readonly"
+                  />
+                </div>
+                <div className="user-settings-field">
+                  <label>Отображаемое имя (ник для отображения и упоминаний)</label>
+                  <input
+                    type="text"
+                    value={displayNameEdit}
+                    onChange={e => setDisplayNameEdit(e.target.value)}
+                    placeholder={user?.username ?? ''}
                     maxLength={32}
                   />
-                  <button type="button" className="user-settings-save-btn" onClick={handleSaveUsername}>Сохранить</button>
+                  <div className="user-settings-field">
+                    <label>Где применять</label>
+                    <select
+                      value={displayNameScopeId ?? ''}
+                      onChange={e => setDisplayNameScopeId(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="user-settings-scope-select"
+                    >
+                      <option value="">Для всех серверов</option>
+                      {servers.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                    {displayNameScopeId && displayNameScopeId !== '' && !canChangeDisplayNameOnServer && (
+                      <p className="user-settings-help-inline user-settings-error-inline">Нет права менять отображаемое имя на этом сервере.</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="user-settings-save-btn"
+                    onClick={handleSaveDisplayName}
+                    disabled={displayNameSaving || (displayNameScopeId && displayNameScopeId !== '' && !canChangeDisplayNameOnServer)}
+                  >
+                    {displayNameSaving ? 'Сохранение…' : 'Сохранить'}
+                  </button>
                 </div>
               </>
             )}

@@ -903,16 +903,14 @@ input, select {
   flex-direction: row;
   padding: 12px 16px;
   position: relative;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin: 4px 8px;
-  transition: all 0.2s ease;
-  background: rgba(30, 41, 59, 0.4);
+  transition: background 0.2s ease;
+  background: transparent;
 }
 
 .message:hover {
-  background: rgba(37, 99, 235, 0.2);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background: var(--bg-hover);
 }
 
 .message-with-header {
@@ -942,6 +940,8 @@ input, select {
   font-size: 16px;
   color: white;
   flex-shrink: 0;
+  background-size: cover;
+  background-position: center;
 }
 
 /* Время, которое появляется при наведении на компактное сообщение */
@@ -964,6 +964,13 @@ input, select {
   overflow: hidden;
 }
 
+.message-text-twemoji img {
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.1em;
+  display: inline-block;
+}
+
 .message-header {
   display: flex;
   align-items: baseline;
@@ -979,6 +986,14 @@ input, select {
 
 .message-username:hover {
   text-decoration: underline;
+}
+
+.message-muted-icon {
+  display: inline-flex;
+  align-items: center;
+  color: #ed4245;
+  flex-shrink: 0;
+  margin-left: 2px;
 }
 
 .message-time {
@@ -1576,6 +1591,13 @@ input, select {
   background: rgba(88, 101, 242, 0.2);
 }
 .message-reaction-emoji { font-size: 14px; }
+.message-reaction-emoji img,
+.message-action-emoji-twemoji img {
+  width: 1em;
+  height: 1em;
+  vertical-align: middle;
+  display: inline-block;
+}
 .message-reaction-picker {
   display: inline-flex;
   gap: 2px;
@@ -1984,6 +2006,8 @@ input, select {
   color: white;
   margin-right: 12px;
   flex-shrink: 0;
+  background-size: cover;
+  background-position: center;
 }
 
 .member-info {
@@ -2228,6 +2252,17 @@ input, select {
   background: #c03537;
 }
 
+.voice-panel-mic-btn.force-muted:disabled,
+.voice-panel-headphone-btn.force-deafened:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.voice-panel-mic-btn.force-muted:disabled:hover,
+.voice-panel-headphone-btn.force-deafened:disabled:hover {
+  background: #ed4245;
+}
+
 .voice-panel-mic-icon {
   display: inline-block;
   line-height: 1;
@@ -2338,6 +2373,8 @@ input, select {
   font-size: 11px;
   font-weight: 600;
   color: white;
+  background-size: cover;
+  background-position: center;
 }
 
 .voice-channel-user-name {
@@ -2360,6 +2397,23 @@ input, select {
   width: 16px;
   height: 16px;
   color: #dcddde;
+}
+
+.voice-channel-user-clickable {
+  cursor: pointer;
+}
+.voice-channel-user-clickable:hover {
+  background: #34373c;
+  border-radius: 4px;
+}
+
+.voice-channel-user-muted.voice-channel-user-force,
+.voice-channel-user-deafened.voice-channel-user-force {
+  color: #ed4245;
+}
+.voice-channel-user-muted.voice-channel-user-force .icon-mic-off,
+.voice-channel-user-deafened.voice-channel-user-force .icon-headphone-off {
+  color: #ed4245;
 }
 
 .voice-channel-user-muted .icon-mic-off {
@@ -2578,6 +2632,47 @@ input, select {
   accent-color: #5865f2;
 }
 
+.user-settings-field input.user-settings-readonly {
+  background: #2f3136;
+  color: #72767d;
+  cursor: default;
+}
+
+.user-settings-display-scope {
+  margin-top: 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #b9bbbe;
+}
+.user-settings-display-scope label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-weight: normal;
+}
+.user-settings-help-inline {
+  font-size: 12px;
+  color: #72767d;
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+.user-settings-help-inline.user-settings-error-inline {
+  color: #ed4245;
+}
+
+.user-settings-scope-select {
+  width: 100%;
+  padding: 10px 12px;
+  background: #202225;
+  border: none;
+  border-radius: 4px;
+  color: #dcddde;
+  font-size: 14px;
+  margin-top: 6px;
+}
+
 .user-settings-test-mic-btn {
   padding: 10px 20px;
   background: #5865f2;
@@ -2791,7 +2886,8 @@ input, select {
   background: #4752c4;
 }
 
-.user-settings-upload-btn:disabled {
+.user-settings-upload-btn:disabled,
+.user-settings-save-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -3593,6 +3689,7 @@ input, select {
 }
 
 .message-action-emoji { font-size: 16px; }
+.message-action-emoji .message-action-emoji-twemoji { font-size: 16px; }
 
 .message-action-emoji-picker .message-action-emoji-icon {
   display: inline-block;
@@ -3687,6 +3784,26 @@ input, select {
 }
 .message-reaction-picker-anchored {
   transform: none;
+}
+
+/* Попап реакций — тот же EmojiPicker с категориями, что и при отправке */
+.message-reaction-picker-emoji-picker {
+  width: 352px;
+  min-width: 320px;
+  max-width: 90vw;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  padding: 0;
+  display: block;
+  max-height: 400px;
+}
+
+.message-reaction-picker-emoji-picker .epr-main {
+  background: var(--bg-secondary) !important;
+  border: none !important;
 }
 
 /* Баннер «новые сообщения» в чате (плашка снизу) */
@@ -4250,6 +4367,8 @@ input, select {
   font-size: 32px;
   color: white;
   border: 6px solid #292b2f;
+  background-size: cover;
+  background-position: center;
 }
 
 .profile-status-dot {
@@ -4268,15 +4387,126 @@ input, select {
 
 .profile-name-section {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   margin-bottom: 8px;
+}
+
+.profile-display-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-display-name {
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.profile-edit-nick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #b9bbbe;
+  cursor: pointer;
+}
+.profile-edit-nick-btn:hover {
+  background: #36393f;
+  color: #fff;
+}
+
+.profile-username-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #72767d;
+  font-size: 13px;
+}
+.profile-username-hash {
+  flex-shrink: 0;
+  color: #43b581;
+}
+.profile-username-id {
+  font-weight: 500;
 }
 
 .profile-username {
   color: #ffffff;
   font-size: 20px;
   font-weight: 700;
+}
+
+.profile-edit-nick-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.profile-edit-nick-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #36393f;
+  border-radius: 4px;
+  background: #202225;
+  color: #fff;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.profile-edit-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #b9bbbe;
+}
+.profile-edit-scope label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.profile-edit-error {
+  font-size: 12px;
+  color: #ed4245;
+}
+.profile-edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.profile-edit-cancel,
+.profile-edit-save {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.profile-edit-cancel {
+  background: transparent;
+  border: none;
+  color: #b9bbbe;
+}
+.profile-edit-cancel:hover {
+  color: #fff;
+}
+.profile-edit-save {
+  background: #5865f2;
+  border: none;
+  color: #fff;
+}
+.profile-edit-save:hover:not(:disabled) {
+  background: #4752c4;
+}
+.profile-edit-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .profile-status-text {
@@ -4770,6 +5000,12 @@ input, select {
   margin-bottom: 2px;
 }
 
+.ctx-menu-sep {
+  height: 1px;
+  background: #2f3136;
+  margin: 4px 0;
+}
+
 .ctx-menu-item {
   display: flex;
   align-items: center;
@@ -4798,6 +5034,14 @@ input, select {
 .ctx-menu-item.ctx-danger:hover {
   background: #ed4245;
   color: #ffffff;
+}
+
+.ctx-menu-item.ctx-menu-item-disabled,
+.ctx-menu-item.ctx-menu-item-disabled:hover {
+  color: #72767d;
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 0.8;
 }
 
 .ctx-arrow {

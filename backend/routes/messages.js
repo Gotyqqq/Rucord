@@ -62,25 +62,19 @@ router.get('/channel/:channelId', (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
     const before = req.query.before ? parseInt(req.query.before) : null;
 
+    const msgSelect = `
+      SELECT m.*, u.username, u.avatar_url,
+        COALESCE(sm.display_name, u.display_name, u.username) as display_username
+      FROM messages m
+      JOIN users u ON u.id = m.user_id
+      JOIN channels ch ON ch.id = m.channel_id
+      LEFT JOIN server_members sm ON sm.server_id = ch.server_id AND sm.user_id = m.user_id
+    `;
     let messages;
     if (before) {
-      messages = db.prepare(`
-        SELECT m.*, u.username, u.avatar_url
-        FROM messages m
-        JOIN users u ON u.id = m.user_id
-        WHERE m.channel_id = ? AND m.id < ?
-        ORDER BY m.created_at DESC
-        LIMIT ?
-      `).all(channelId, before, limit);
+      messages = db.prepare(msgSelect + ` WHERE m.channel_id = ? AND m.id < ? ORDER BY m.created_at DESC LIMIT ?`).all(channelId, before, limit);
     } else {
-      messages = db.prepare(`
-        SELECT m.*, u.username, u.avatar_url
-        FROM messages m
-        JOIN users u ON u.id = m.user_id
-        WHERE m.channel_id = ?
-        ORDER BY m.created_at DESC
-        LIMIT ?
-      `).all(channelId, limit);
+      messages = db.prepare(msgSelect + ` WHERE m.channel_id = ? ORDER BY m.created_at DESC LIMIT ?`).all(channelId, limit);
     }
 
     // Возвращаем в хронологическом порядке (старые сверху)
@@ -120,9 +114,12 @@ router.post('/channel/:channelId', (req, res) => {
     ).run(channelId, req.user.id, content.trim());
 
     const message = db.prepare(`
-      SELECT m.*, u.username, u.avatar_url
+      SELECT m.*, u.username, u.avatar_url,
+        COALESCE(sm.display_name, u.display_name, u.username) as display_username
       FROM messages m
       JOIN users u ON u.id = m.user_id
+      JOIN channels ch ON ch.id = m.channel_id
+      LEFT JOIN server_members sm ON sm.server_id = ch.server_id AND sm.user_id = m.user_id
       WHERE m.id = ?
     `).get(result.lastInsertRowid);
 
@@ -193,9 +190,12 @@ router.put('/:messageId', (req, res) => {
     db.prepare('UPDATE messages SET content = ?, edited = 1 WHERE id = ?').run(content.trim(), messageId);
 
     const updated = db.prepare(`
-      SELECT m.*, u.username, u.avatar_url
+      SELECT m.*, u.username, u.avatar_url,
+        COALESCE(sm.display_name, u.display_name, u.username) as display_username
       FROM messages m
       JOIN users u ON u.id = m.user_id
+      JOIN channels ch ON ch.id = m.channel_id
+      LEFT JOIN server_members sm ON sm.server_id = ch.server_id AND sm.user_id = m.user_id
       WHERE m.id = ?
     `).get(messageId);
 

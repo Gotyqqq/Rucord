@@ -76,7 +76,7 @@ export default function ServerSettings({
       setError('');
       await api.post(`/api/members/server/${server.id}/roles`, {
         name: newRoleName.trim(), color: newRoleColor,
-        permissions: { send_messages: true, read_messages: true, manage_server: false, manage_channels: false, manage_roles: false, kick_members: false, edit_messages: false, administrator: false }
+        permissions: { send_messages: true, read_messages: true, manage_server: false, manage_channels: false, manage_roles: false, kick_members: false, ban_members: false, mute_members: false, deafen_members: false, edit_messages: false, delete_messages: false, send_gifs: true, send_media: true, administrator: false, change_display_name: true, speak_in_voice: true, create_voice_channels: false }
       }, token);
       setNewRoleName(''); loadRoles();
     } catch (err) { setError(err.message); }
@@ -177,13 +177,17 @@ export default function ServerSettings({
     manage_roles: { label: 'Управлять ролями', desc: 'Создавать/назначать роли ниже своей' },
     kick_members: { label: 'Кикать участников', desc: 'Удалять участников ниже своей роли' },
     ban_members: { label: 'Банить участников', desc: 'Перманентный бан с запретом повторного входа', danger: true },
-    mute_members: { label: 'Мутить участников', desc: 'Временный мут — участник может только читать' },
+    mute_members: { label: 'Мутить участников', desc: 'Серверный мут — отключить микрофон участнику' },
+    deafen_members: { label: 'Выключать звук участникам', desc: 'Принудительно отключить участнику звук в войсе' },
     edit_messages: { label: 'Редактировать чужие сообщения', desc: '' },
     delete_messages: { label: 'Удалять сообщения', desc: 'Удалять свои и чужие сообщения в каналах', danger: true },
     send_messages: { label: 'Отправлять сообщения', desc: '' },
     read_messages: { label: 'Читать сообщения', desc: '' },
     send_gifs: { label: 'Отправлять гифки', desc: 'Добавлять гифки из поиска и в избранное' },
     send_media: { label: 'Отправлять аудио и видео', desc: 'Прикреплять аудио/видео до 5 МБ' },
+    change_display_name: { label: 'Менять отображаемое имя', desc: 'Устанавливать ник для этого сервера' },
+    speak_in_voice: { label: 'Говорить в голосовых каналах', desc: 'Заходить в войс, говорить, выключать микрофон/звук' },
+    create_voice_channels: { label: 'Создавать голосовые каналы', desc: 'Создавать новые голосовые каналы' },
   };
   const canTogglePermission = (permKey) => isOwner || !!myPermissions[permKey];
 

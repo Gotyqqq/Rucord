@@ -28,7 +28,7 @@ export default function VoicePanel({
   channel,
   participants,
   currentUserId,
-  currentUsername,
+  currentUsername, currentDisplayName,
   user,
   socket,
   onLeave,
@@ -590,7 +590,14 @@ export default function VoicePanel({
 
   const inVoice = !!channel;
 
+  const me = participants.find(p => p.userId === currentUserId);
+  const forceMuted = !!me?.force_muted;
+  const forceDeafened = !!me?.force_deafened;
+  const effectiveMuted = muted || forceMuted;
+  const effectiveDeafened = deafened || forceDeafened;
+
   const toggleMute = () => {
+    if (forceMuted) return;
     const next = !muted;
     setMuted(next);
     saveBool(VOICE_KEYS.muted, next);
@@ -601,6 +608,7 @@ export default function VoicePanel({
   };
 
   const toggleDeafen = () => {
+    if (forceDeafened) return;
     const next = !deafened;
     setDeafened(next);
     saveBool(VOICE_KEYS.deafened, next);
@@ -643,12 +651,12 @@ export default function VoicePanel({
       <div className="voice-panel-user-row">
         <div
           className="voice-panel-user-avatar"
-          style={avatarUrl ? { backgroundImage: `url(${avatarUrl})`, backgroundColor: 'transparent' } : { backgroundColor: getAvatarColor(currentUsername || user?.username) }}
+          style={avatarUrl ? { backgroundImage: `url(${avatarUrl})`, backgroundColor: 'transparent' } : { backgroundColor: getAvatarColor(currentDisplayName || currentUsername || user?.username) }}
         >
-          {!avatarUrl && getInitial(currentUsername || user?.username)}
+          {!avatarUrl && getInitial(currentDisplayName || currentUsername || user?.username)}
         </div>
         <div className="voice-panel-user-info">
-          <span className="voice-panel-username">{currentUsername || user?.username || 'Вы'}</span>
+          <span className="voice-panel-username">{currentDisplayName || currentUsername || user?.username || 'Вы'}</span>
           <span className="voice-panel-user-status" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span
               style={{
@@ -683,11 +691,12 @@ export default function VoicePanel({
           <div className="voice-panel-controls-row">
             <button
               type="button"
-              className={`voice-panel-mic-btn ${muted ? 'muted' : ''}`}
+              className={`voice-panel-mic-btn ${effectiveMuted ? 'muted' : ''} ${forceMuted ? 'force-muted' : ''}`}
               onClick={toggleMute}
-              title={muted ? 'Включить микрофон' : 'Выключить микрофон'}
+              disabled={forceMuted}
+              title={forceMuted ? 'Микрофон выключен модератором' : (effectiveMuted ? 'Включить микрофон' : 'Выключить микрофон')}
             >
-              {muted ? (
+              {effectiveMuted ? (
                 <MicOff className="voice-panel-mic-icon voice-panel-mic-icon-off" size={20} aria-hidden />
               ) : (
                 <Mic className="voice-panel-mic-icon" size={20} aria-hidden />
@@ -696,11 +705,12 @@ export default function VoicePanel({
             </button>
             <button
               type="button"
-              className={`voice-panel-headphone-btn ${deafened ? 'deafened' : ''}`}
+              className={`voice-panel-headphone-btn ${effectiveDeafened ? 'deafened' : ''} ${forceDeafened ? 'force-deafened' : ''}`}
               onClick={toggleDeafen}
-              title={deafened ? 'Включить звук' : 'Выключить звук'}
+              disabled={forceDeafened}
+              title={forceDeafened ? 'Звук выключен модератором' : (effectiveDeafened ? 'Включить звук' : 'Выключить звук')}
             >
-              {deafened ? (
+              {effectiveDeafened ? (
                 <HeadphonesOff className="voice-panel-headphone-icon voice-panel-headphone-icon-off" size={20} aria-hidden />
               ) : (
                 <Headphones className="voice-panel-headphone-icon" size={20} aria-hidden />

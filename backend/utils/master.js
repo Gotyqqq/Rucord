@@ -9,8 +9,10 @@ const db = require('../database');
 const ALL_PERMS = {
   administrator: true, manage_server: true, manage_channels: true,
   manage_roles: true, kick_members: true, ban_members: true,
-  mute_members: true, send_messages: true, read_messages: true,
-  edit_messages: true, delete_messages: true, send_gifs: true, send_media: true
+  mute_members: true, deafen_members: true,
+  send_messages: true, read_messages: true,
+  edit_messages: true, delete_messages: true, send_gifs: true, send_media: true,
+  change_display_name: true, speak_in_voice: true, create_voice_channels: true
 };
 
 let _masterIds = null;

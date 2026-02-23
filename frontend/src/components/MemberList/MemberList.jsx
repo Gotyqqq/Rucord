@@ -4,6 +4,7 @@
 // ============================================================
 
 import React, { useState } from 'react';
+import { getAvatarUrl } from '../../utils/avatar';
 
 export default function MemberList({ members, server, onlineStatuses = {}, onOpenProfile, onContextMenu }) {
   if (!server) return null;
@@ -103,20 +104,25 @@ function MemberItem({ member, getInitial, getAvatarColor, getTopRole, status, on
     if (onOpenProfile) onOpenProfile(member);
   };
 
+  const displayName = member.display_name || member.username;
+  const avatarUrl = getAvatarUrl(member.avatar_url);
   return (
     <div className={`member-item ${status === 'offline' ? 'member-offline' : ''} ${member.is_muted ? 'member-muted' : ''}`}
       onClick={handleClick}
       onContextMenu={(e) => onContextMenu && onContextMenu(e, member)}
     >
       <div className="member-avatar-wrapper">
-        <div className="member-avatar" style={{ backgroundColor: getAvatarColor(member.username) }}>
-          {getInitial(member.username)}
+        <div
+          className="member-avatar"
+          style={avatarUrl ? { backgroundImage: `url(${avatarUrl})`, backgroundColor: 'transparent' } : { backgroundColor: getAvatarColor(member.username) }}
+        >
+          {!avatarUrl && getInitial(displayName)}
         </div>
         <span className="member-status-dot" style={{ backgroundColor: statusColor }} title={statusTitle} />
       </div>
       <div className="member-info">
         <span className="member-name" style={{ color: nameColor }}>
-          {member.username}
+          {displayName}
           {member.is_owner && <span className="owner-crown-small" title="Владелец сервера"> 👑</span>}
         </span>
         {topRole && (
