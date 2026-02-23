@@ -65,6 +65,7 @@ export default function VoicePanel({
   const savedMutedRef = useRef(false);
   const savedDeafenedRef = useRef(false);
   const iceRestartCountRef = useRef({});
+  const effectiveDeafenedRef = useRef(false);
   const relayRecorderRef = useRef(null);
   const relayPlaybackCtxRef = useRef(null);
   const relayQueuesRef = useRef({});
@@ -604,7 +605,7 @@ export default function VoicePanel({
     };
 
     const onVoiceAudio = ({ userId, data }) => {
-      if (effectiveDeafened) return;
+      if (effectiveDeafenedRef.current) return;
       const buf = data instanceof ArrayBuffer ? data : (data?.buffer ? data.buffer : null);
       if (!buf) return;
       ctx.decodeAudioData(buf.slice(0)).then((buffer) => {
@@ -617,7 +618,7 @@ export default function VoicePanel({
     return () => {
       socket.off('voice_audio', onVoiceAudio);
     };
-  }, [VOICE_USE_RELAY, channel?.id, socket, effectiveDeafened]);
+  }, [VOICE_USE_RELAY, channel?.id, socket]);
 
   useEffect(() => {
     if (!VOICE_USE_RELAY) return;
@@ -687,6 +688,10 @@ export default function VoicePanel({
   const forceDeafened = !!me?.force_deafened;
   const effectiveMuted = muted || forceMuted;
   const effectiveDeafened = deafened || forceDeafened;
+
+  useEffect(() => {
+    effectiveDeafenedRef.current = effectiveDeafened;
+  }, [effectiveDeafened]);
 
   const toggleMute = () => {
     if (forceMuted) return;
