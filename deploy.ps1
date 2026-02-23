@@ -30,7 +30,7 @@ Write-Host ""
 Write-Host "Чтобы изменения появились на сервере:" -ForegroundColor Yellow
 Write-Host "  - Если настроен GitHub Actions (Deploy to server) — деплой запустится сам, проверь вкладку Actions." -ForegroundColor Gray
 Write-Host "  - Иначе зайди по SSH и выполни:  ~/Rucord/deploy.sh" -ForegroundColor Gray
-Write-Host "  - После обновления открой сайт с жёстким обновлением (Ctrl+Shift+R), чтобы сбросить кэш браузера." -ForegroundColor Gray
+Write-Host '  - После обновления открой сайт с жёстким обновлением (Ctrl+Shift+R), чтобы сбросить кэш браузера.' -ForegroundColor Gray
 
 # Деплой на сервер по SSH (раскомментируй и подставь свой хост и пользователя)
 # Требуется: вход по SSH-ключу без пароля (ssh-keygen, затем ssh-copy-id root@IP)
