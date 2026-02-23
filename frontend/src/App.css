@@ -487,6 +487,18 @@ input, select {
   min-height: 0;
 }
 
+/* Метка сборки: по дате видно, загружена ли новая версия */
+.app-build-badge {
+  position: fixed;
+  bottom: 8px;
+  right: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  z-index: 50;
+  pointer-events: none;
+}
+
 /* Место под нижнюю панель (72px = блок ~64px + отступ 8px) — контент каналов заканчивается ровно по «красной линии» */
 .app-bottom-spacer {
   height: 72px;

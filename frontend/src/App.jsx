@@ -644,8 +644,16 @@ export default function App() {
     );
   }
 
+  const buildTime = import.meta.env.BUILD_TIME;
+  const buildLabel = buildTime ? new Date(buildTime).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+
   return (
     <div className="app" onClick={closeContextMenu}>
+      {buildLabel && (
+        <div className="app-build-badge" title={`Сборка: ${buildTime}`}>
+          {buildLabel}
+        </div>
+      )}
       <ServerList
         servers={memberServers} selectedServerId={selectedServerId}
         onSelectServer={handleSelectServerFromSidebar}
