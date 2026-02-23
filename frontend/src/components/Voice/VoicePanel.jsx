@@ -188,6 +188,7 @@ export default function VoicePanel({
     pc.ontrack = (e) => {
       const stream = e.streams[0] || (e.track ? new MediaStream([e.track]) : null);
       if (stream) {
+        console.log('[Голос] Получен аудиопоток от участника', userId);
         setRemoteStreams(prev => ({ ...prev, [userId]: stream }));
         setConnecting(false);
       }
@@ -240,6 +241,7 @@ export default function VoicePanel({
       }
       if (state === 'connected') {
         iceRestartCountRef.current[userId] = 0;
+        console.log('[Голос] Соединение с участником', userId, 'установлено');
       }
     };
 
@@ -546,7 +548,11 @@ export default function VoicePanel({
   // ---- Autoplay remote audio (с задержкой, т.к. ref вызывается после commit) ----
   const tryPlayRemoteAudio = useCallback(() => {
     Object.values(audioElsRef.current).forEach(el => {
-      if (el?.srcObject && !el.muted && el.paused) el.play().catch(() => {});
+      if (el?.srcObject && !el.muted && el.paused) {
+        el.play().catch((err) => {
+          console.warn('[Голос] Воспроизведение не запустилось (часто нужен клик по панели):', err?.name || err);
+        });
+      }
     });
   }, []);
 
@@ -627,7 +633,11 @@ export default function VoicePanel({
 
   const playAllRemoteAudio = () => {
     Object.values(audioElsRef.current).forEach(el => {
-      if (el?.srcObject && !el.muted) el.play().catch(() => {});
+      if (el?.srcObject && !el.muted) {
+        el.play().catch((err) => {
+          console.warn('[Голос] play() после клика:', err?.name || err, err?.message || '');
+        });
+      }
     });
   };
 
@@ -744,9 +754,14 @@ export default function VoicePanel({
             el.muted = effectiveDeafened;
             el.volume = Math.max(0, Math.min(1, outputGain));
             if (outputDeviceId && el.setSinkId) el.setSinkId(outputDeviceId).catch(() => {});
-            el.play().catch(() => {});
-            setTimeout(() => el.play().catch(() => {}), 100);
-            setTimeout(() => el.play().catch(() => {}), 500);
+            const tryPlay = () => {
+              el.play().catch((err) => {
+                console.warn('[Голос] Воспроизведение (авто):', err?.name || err, '— нажмите по панели голоса или кнопке «Включить звук»');
+              });
+            };
+            tryPlay();
+            setTimeout(tryPlay, 100);
+            setTimeout(tryPlay, 500);
           }}
           autoPlay
           playsInline
