@@ -27,15 +27,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ">>> Пуш выполнен." -ForegroundColor Green
 Write-Host ""
-Write-Host "Чтобы изменения появились на сервере:" -ForegroundColor Yellow
-Write-Host "  - Если настроен GitHub Actions (Deploy to server) — деплой запустится сам, проверь вкладку Actions." -ForegroundColor Gray
-Write-Host "  - Иначе зайди по SSH и выполни:  ~/Rucord/deploy.sh" -ForegroundColor Gray
+Write-Host 'Чтобы изменения появились на сервере:' -ForegroundColor Yellow
+Write-Host '  - Если настроен GitHub Actions — деплой запустится сам, проверь вкладку Actions.' -ForegroundColor Gray
+Write-Host '  - Иначе зайди по SSH и выполни:  ~/Rucord/deploy.sh' -ForegroundColor Gray
 Write-Host '  - После обновления открой сайт с жёстким обновлением (Ctrl+Shift+R), чтобы сбросить кэш браузера.' -ForegroundColor Gray
 
-# Деплой на сервер по SSH (раскомментируй и подставь свой хост и пользователя)
-# Требуется: вход по SSH-ключу без пароля (ssh-keygen, затем ssh-copy-id root@IP)
-# $SERVER = "root@92.63.107.123"   # замени на свой IP или домен
-# Write-Host ">>> Деплой на сервер $SERVER ..." -ForegroundColor Cyan
-# ssh $SERVER "cd ~/Rucord && ./deploy.sh && sudo chmod -R 755 /root/Rucord/frontend/dist && sudo systemctl reload nginx"
-# if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-# Write-Host ">>> Готово. Сайт обновлён." -ForegroundColor Green
+# SSH deploy: run manually:  ssh root@YOUR_IP 'cd ~/Rucord; ./deploy.sh'
