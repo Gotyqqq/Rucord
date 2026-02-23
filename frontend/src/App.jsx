@@ -36,6 +36,9 @@ function saveToStorage(key, data) {
 
 export default function App() {
   const { user, token, loading, logout, refreshUser } = useAuth();
+  useEffect(() => {
+    if (import.meta.env.BUILD_TIME) console.log('Rucord build:', import.meta.env.BUILD_TIME);
+  }, []);
 
   const [authPage, setAuthPage] = useState('landing');
   const [servers, setServers] = useState([]);
