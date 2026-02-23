@@ -11,12 +11,13 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 Write-Host ">>> Git add + commit..." -ForegroundColor Cyan
-git add .
+git add -A
 $status = git status --short
 if (-not $status) {
     Write-Host "Нет изменений для коммита." -ForegroundColor Yellow
     exit 0
 }
+Write-Host $status
 git commit -m $Message
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -25,6 +26,11 @@ git push origin main
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ">>> Пуш выполнен." -ForegroundColor Green
+Write-Host ""
+Write-Host "Чтобы изменения появились на сервере:" -ForegroundColor Yellow
+Write-Host "  - Если настроен GitHub Actions (Deploy to server) — деплой запустится сам, проверь вкладку Actions." -ForegroundColor Gray
+Write-Host "  - Иначе зайди по SSH и выполни:  ~/Rucord/deploy.sh" -ForegroundColor Gray
+Write-Host "  - После обновления открой сайт с жёстким обновлением (Ctrl+Shift+R), чтобы сбросить кэш браузера." -ForegroundColor Gray
 
 # Деплой на сервер по SSH (раскомментируй и подставь свой хост и пользователя)
 # Требуется: вход по SSH-ключу без пароля (ssh-keygen, затем ssh-copy-id root@IP)
