@@ -506,24 +506,9 @@ export default function VoicePanel({
     };
 
     socket.on('voice_signal', handleSignal);
-
-    (async () => {
-      for (const p of participants) {
-        const peerId = Number(p.userId);
-        if (peerId === currentUserId) continue;
-        const pc = createPeerConnection(peerId, processedStream, socket);
-        pendingCandidatesRef.current[peerId] = [];
-        try {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          setAudioBitrate(pc);
-          socket.emit('voice_signal', { toUserId: peerId, signal: pc.localDescription });
-        } catch (err) {
-          console.error('Offer creation error:', err);
-        }
-      }
-      if (participants.filter(p => Number(p.userId) !== currentUserId).length === 0) setConnecting(false);
-    })();
+    // Не создаём offer для уже сидящих в канале — они получат voice_participant_joined (нас) и сами пришлют offer.
+    // Так избегаем "glare": оба не шлют offer и не игнорируют чужой.
+    if (participants.filter(p => Number(p.userId) !== currentUserId).length === 0) setConnecting(false);
 
     return () => {
       socket.off('voice_signal', handleSignal);
