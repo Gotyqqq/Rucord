@@ -652,6 +652,11 @@ export default function Chat({
     setPendingAttachments([]);
     setShowMentions(false);
     setShowEmojiPicker(false);
+    const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollToBottom();
+    setTimeout(scrollToBottom, 150);
+    setTimeout(scrollToBottom, 400);
+    setTimeout(scrollToBottom, 800);
   };
 
   const insertEmoji = (emoji) => {
@@ -1276,7 +1281,7 @@ export default function Chat({
         </div>
       )}
 
-      <div className="chat-input-wrapper">
+      <div className={`chat-input-wrapper ${!readOnly && pendingAttachments.length > 0 ? 'chat-input-wrapper-has-attachments' : ''}`}>
         {readOnly && (
           <div className="chat-readonly-notice">В режиме просмотра нельзя писать. Нажмите «Вступить», чтобы участвовать.</div>
         )}

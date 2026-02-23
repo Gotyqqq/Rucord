@@ -1119,13 +1119,20 @@ input, select {
 .chat-toolbar-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .chat-toolbar-btn-gif { font-family: inherit; }
 
+.chat-input-wrapper-has-attachments .chat-input-form {
+  border-radius: 0 0 12px 12px;
+}
+
 .chat-pending-attachments {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 8px 16px;
-  background: #36393f;
-  border-top: 1px solid #202225;
+  padding: 8px 12px;
+  margin: 0 0 0 0;
+  background: var(--bg-secondary);
+  border-radius: 12px 12px 0 0;
+  border: 1px solid var(--border-subtle);
+  border-bottom: none;
 }
 .chat-pending-attachment {
   position: relative;
@@ -3393,11 +3400,11 @@ input, select {
 /* Выпадающее автодополнение */
 .chat-input-wrapper {
   position: relative;
-  height: 64px;
   min-height: 64px;
   margin: 0 8px 8px 8px;
   padding: 0;
   display: flex;
+  flex-direction: column;
   align-items: stretch;
   min-width: 0;
   flex-shrink: 0;
@@ -3415,6 +3422,9 @@ input, select {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.chat-input-wrapper .chat-input-form {
+  flex: 0 0 auto;
 }
 
 .mention-popup {
