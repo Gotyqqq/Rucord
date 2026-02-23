@@ -654,9 +654,7 @@ export default function Chat({
     setShowEmojiPicker(false);
     const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     scrollToBottom();
-    setTimeout(scrollToBottom, 150);
-    setTimeout(scrollToBottom, 400);
-    setTimeout(scrollToBottom, 800);
+    [150, 400, 800, 1500, 2500, 4000].forEach((ms) => setTimeout(scrollToBottom, ms));
   };
 
   const insertEmoji = (emoji) => {

@@ -1,5 +1,10 @@
 // Shared voice configuration: ICE servers, bitrate, localStorage keys, helpers
 
+export const getNoiseSuppressorWorkletUrl = () =>
+  (typeof import.meta !== 'undefined' && import.meta.env?.DEV)
+    ? new URL('../audio/noise-suppressor-worklet.js', import.meta.url).href
+    : `${typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL ? import.meta.env.BASE_URL : '/'}assets/noise-suppressor-worklet.js`;
+
 export const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },

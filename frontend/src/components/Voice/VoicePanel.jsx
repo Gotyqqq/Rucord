@@ -9,13 +9,8 @@ import { HeadphonesOff } from '../ui/HeadphonesOff';
 import {
   ICE_SERVERS, AUDIO_BITRATE, VOICE_KEYS,
   loadNumber, loadString, loadBool, saveBool,
-  setAudioBitrate, getSpeakThreshold
+  setAudioBitrate, getSpeakThreshold, getNoiseSuppressorWorkletUrl
 } from '../../utils/voiceConfig';
-// Worklet URL: dev — Vite serves source; prod — fixed asset from build
-const getNoiseSuppressorWorkletUrl = () =>
-  import.meta.env.DEV
-    ? new URL('../../audio/noise-suppressor-worklet.js', import.meta.url).href
-    : `${import.meta.env.BASE_URL || '/'}assets/noise-suppressor-worklet.js`;
 
 function formatDuration(seconds) {
   const h = Math.floor(seconds / 3600);

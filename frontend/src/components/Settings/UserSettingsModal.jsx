@@ -8,7 +8,8 @@ import { api } from '../../utils/api';
 import {
   VOICE_KEYS,
   loadNumber, saveNumber, loadString, saveString,
-  loadBool, saveBool, notifyStorageChange
+  loadBool, saveBool, notifyStorageChange,
+  getNoiseSuppressorWorkletUrl
 } from '../../utils/voiceConfig';
 
 const SENSITIVITY_BARS = 24;
@@ -26,6 +27,7 @@ export default function UserSettingsModal({ onClose, token, servers = [], curren
   const [sensitivityAuto, setSensitivityAuto] = useState(() => loadBool(VOICE_KEYS.sensitivityAuto, true));
   const [sensitivityThreshold, setSensitivityThreshold] = useState(() => Math.round(loadNumber(VOICE_KEYS.sensitivityThreshold, 25)));
   const [sensitivityLevel, setSensitivityLevel] = useState(0);
+  const [pipelineReady, setPipelineReady] = useState(false);
   const [testingMic, setTestingMic] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [micTestError, setMicTestError] = useState('');
@@ -41,6 +43,9 @@ export default function UserSettingsModal({ onClose, token, servers = [], curren
   const sensitivityStreamRef = useRef(null);
   const sensitivityAnimationRef = useRef(null);
   const sensitivityGainRef = useRef(null);
+  const sensitivityCtxRef = useRef(null);
+  const sensitivityDestinationRef = useRef(null);
+  const processedStreamRef = useRef(null);
   const micTestGainRef = useRef(null);
   const loopbackAudioRef = useRef(null);
 
@@ -111,13 +116,21 @@ export default function UserSettingsModal({ onClose, token, servers = [], curren
     });
   }, [currentServerId, servers]);
 
-  // Поток и индикатор уровня для вкладки «Голос» (чувствительность + проверка микрофона)
+  // Поток и пайплайн (gain + RNNoise) для вкладки «Голос» — тот же результат, что уходит на сервер
   useEffect(() => {
     if (tab !== 'voice') {
+      setPipelineReady(false);
+      processedStreamRef.current = null;
+      if (sensitivityCtxRef.current) {
+        try { sensitivityCtxRef.current.close(); } catch (e) {}
+        sensitivityCtxRef.current = null;
+      }
       if (sensitivityStreamRef.current) {
         sensitivityStreamRef.current.getTracks().forEach(t => t.stop());
         sensitivityStreamRef.current = null;
       }
+      sensitivityDestinationRef.current = null;
+      sensitivityGainRef.current = null;
       if (sensitivityAnimationRef.current) cancelAnimationFrame(sensitivityAnimationRef.current);
       setSensitivityLevel(0);
       return;
@@ -134,15 +147,34 @@ export default function UserSettingsModal({ onClose, token, servers = [], curren
         stream = await navigator.mediaDevices.getUserMedia(constraints);
         sensitivityStreamRef.current = stream;
         sensitivityGainRef.current = null;
+        sensitivityDestinationRef.current = null;
+        processedStreamRef.current = null;
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        sensitivityCtxRef.current = ctx;
         const src = ctx.createMediaStreamSource(stream);
         const gainNode = ctx.createGain();
         gainNode.gain.value = inputGain;
         sensitivityGainRef.current = gainNode;
         src.connect(gainNode);
+        const dest = ctx.createMediaStreamDestination();
+        sensitivityDestinationRef.current = dest;
+        if (noiseSuppression) {
+          try {
+            await ctx.audioWorklet.addModule(getNoiseSuppressorWorkletUrl());
+            const worklet = new AudioWorkletNode(ctx, 'NoiseSuppressorWorklet');
+            gainNode.connect(worklet);
+            worklet.connect(dest);
+          } catch (e) {
+            gainNode.connect(dest);
+          }
+        } else {
+          gainNode.connect(dest);
+        }
+        processedStreamRef.current = dest.stream;
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
-        gainNode.connect(analyser);
+        const levelSrc = ctx.createMediaStreamSource(dest.stream);
+        levelSrc.connect(analyser);
         const data = new Uint8Array(analyser.frequencyBinCount);
         const tick = () => {
           if (!sensitivityStreamRef.current) return;
@@ -152,18 +184,27 @@ export default function UserSettingsModal({ onClose, token, servers = [], curren
           sensitivityAnimationRef.current = requestAnimationFrame(tick);
         };
         tick();
+        setPipelineReady(true);
       } catch (e) {
         setSensitivityLevel(0);
+        setPipelineReady(false);
       }
     };
     start();
     return () => {
+      setPipelineReady(false);
+      processedStreamRef.current = null;
+      sensitivityDestinationRef.current = null;
+      if (sensitivityCtxRef.current) {
+        try { sensitivityCtxRef.current.close(); } catch (e) {}
+        sensitivityCtxRef.current = null;
+      }
       if (stream) stream.getTracks().forEach(t => t.stop());
       sensitivityStreamRef.current = null;
       sensitivityGainRef.current = null;
       if (sensitivityAnimationRef.current) cancelAnimationFrame(sensitivityAnimationRef.current);
     };
-  }, [tab, inputDeviceId]);
+  }, [tab, inputDeviceId, noiseSuppression]);
 
   // Обновление громкости микрофона без перезапуска потока
   useEffect(() => {
@@ -171,7 +212,7 @@ export default function UserSettingsModal({ onClose, token, servers = [], curren
     if (micTestGainRef.current) micTestGainRef.current.gain.value = inputGain;
   }, [inputGain]);
 
-  // Прослушивание своего голоса (loopback) при проверке в голосовом канале
+  // Прослушивание своего голоса (loopback) при проверке в голосовом канале — тот же поток, что уходит на сервер (gain + RNNoise)
   useEffect(() => {
     if (!testingMic || !inVoiceChannel) {
       if (loopbackAudioRef.current) {
@@ -184,7 +225,7 @@ export default function UserSettingsModal({ onClose, token, servers = [], curren
       }
       return;
     }
-    const stream = sensitivityStreamRef.current;
+    const stream = processedStreamRef.current;
     if (stream) {
       const audio = document.createElement('audio');
       audio.autoplay = true;
@@ -207,9 +248,9 @@ export default function UserSettingsModal({ onClose, token, servers = [], curren
         loopbackAudioRef.current = null;
       }
     };
-  }, [testingMic, inVoiceChannel]);
+  }, [testingMic, inVoiceChannel, pipelineReady]);
 
-  // Проверка микрофона: визуализация уровня (используем общий поток вкладки)
+  // Проверка микрофона: визуализация уровня — тот же обработанный поток (gain + RNNoise), что уходит на сервер
   useEffect(() => {
     if (!testingMic) {
       if (streamRef.current && streamRef.current !== sensitivityStreamRef.current) {
@@ -224,19 +265,15 @@ export default function UserSettingsModal({ onClose, token, servers = [], curren
     }
     if (inVoiceChannel && onStartMicTest) onStartMicTest();
     setMicTestError('');
-    const stream = sensitivityStreamRef.current;
-    if (stream) {
-      streamRef.current = stream;
+    const processed = processedStreamRef.current;
+    if (processed) {
+      streamRef.current = sensitivityStreamRef.current;
       micTestGainRef.current = null;
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const src = ctx.createMediaStreamSource(stream);
-      const gainNode = ctx.createGain();
-      gainNode.gain.value = inputGain;
-      micTestGainRef.current = gainNode;
-      src.connect(gainNode);
+      const src = ctx.createMediaStreamSource(processed);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-      gainNode.connect(analyser);
+      src.connect(analyser);
       analyserRef.current = analyser;
       const data = new Uint8Array(analyser.frequencyBinCount);
       const tick = () => {
@@ -247,52 +284,66 @@ export default function UserSettingsModal({ onClose, token, servers = [], curren
         animationRef.current = requestAnimationFrame(tick);
       };
       tick();
-    } else {
-      let newStream = null;
-      (async () => {
-        try {
-          const constraints = {
-            audio: inputDeviceId
-              ? { deviceId: { exact: inputDeviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-              : { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-            video: false
-          };
-          newStream = await navigator.mediaDevices.getUserMedia(constraints);
-          streamRef.current = newStream;
-          micTestGainRef.current = null;
-          const ctx = new (window.AudioContext || window.webkitAudioContext)();
-          const src = ctx.createMediaStreamSource(newStream);
-          const gainNode = ctx.createGain();
-          gainNode.gain.value = inputGain;
-          micTestGainRef.current = gainNode;
-          src.connect(gainNode);
-          const analyser = ctx.createAnalyser();
-          analyser.fftSize = 256;
-          gainNode.connect(analyser);
-          analyserRef.current = analyser;
-          const data = new Uint8Array(analyser.frequencyBinCount);
-          const tick = () => {
-            if (!analyserRef.current) return;
-            analyser.getByteFrequencyData(data);
-            const avg = data.reduce((a, b) => a + b, 0) / data.length;
-            setMicLevel(Math.min(100, Math.round(avg * 2)));
-            animationRef.current = requestAnimationFrame(tick);
-          };
-          tick();
-        } catch (e) {
-          setMicTestError(e.message || 'Нет доступа к микрофону');
-          setTestingMic(false);
-        }
-      })();
       return () => {
-        if (newStream) newStream.getTracks().forEach(t => t.stop());
+        try { ctx.close(); } catch (e) {}
         if (animationRef.current) cancelAnimationFrame(animationRef.current);
       };
     }
+    let newStream = null;
+    (async () => {
+      try {
+        const constraints = {
+          audio: inputDeviceId
+            ? { deviceId: { exact: inputDeviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+            : { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+          video: false
+        };
+        newStream = await navigator.mediaDevices.getUserMedia(constraints);
+        streamRef.current = newStream;
+        micTestGainRef.current = null;
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = ctx.createMediaStreamSource(newStream);
+        const gainNode = ctx.createGain();
+        gainNode.gain.value = inputGain;
+        micTestGainRef.current = gainNode;
+        source.connect(gainNode);
+        const dest = ctx.createMediaStreamDestination();
+        if (noiseSuppression) {
+          try {
+            await ctx.audioWorklet.addModule(getNoiseSuppressorWorkletUrl());
+            const worklet = new AudioWorkletNode(ctx, 'NoiseSuppressorWorklet');
+            gainNode.connect(worklet);
+            worklet.connect(dest);
+          } catch (e) {
+            gainNode.connect(dest);
+          }
+        } else {
+          gainNode.connect(dest);
+        }
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        const levelSrc = ctx.createMediaStreamSource(dest.stream);
+        levelSrc.connect(analyser);
+        analyserRef.current = analyser;
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          if (!analyserRef.current) return;
+          analyser.getByteFrequencyData(data);
+          const avg = data.reduce((a, b) => a + b, 0) / data.length;
+          setMicLevel(Math.min(100, Math.round(avg * 2)));
+          animationRef.current = requestAnimationFrame(tick);
+        };
+        tick();
+      } catch (e) {
+        setMicTestError(e.message || 'Нет доступа к микрофону');
+        setTestingMic(false);
+      }
+    })();
     return () => {
+      if (newStream) newStream.getTracks().forEach(t => t.stop());
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [testingMic, inputDeviceId, inVoiceChannel, onStartMicTest]);
+  }, [testingMic, inputDeviceId, inputGain, noiseSuppression, inVoiceChannel, onStartMicTest, pipelineReady]);
 
   const handleInputDeviceChange = (e) => {
     const id = e.target.value;
