@@ -543,29 +543,35 @@ export default function VoicePanel({
     });
   }, [channel?.id, participants, currentUserId, socket, hasLocalStream, createPeerConnection]);
 
-  // ---- Autoplay remote audio ----
-  useEffect(() => {
+  // ---- Autoplay remote audio (с задержкой, т.к. ref вызывается после commit) ----
+  const tryPlayRemoteAudio = useCallback(() => {
     Object.values(audioElsRef.current).forEach(el => {
       if (el?.srcObject && !el.muted && el.paused) el.play().catch(() => {});
     });
-  }, [remoteStreams]);
+  }, []);
+
+  useEffect(() => {
+    tryPlayRemoteAudio();
+    const t1 = setTimeout(tryPlayRemoteAudio, 100);
+    const t2 = setTimeout(tryPlayRemoteAudio, 500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [remoteStreams, tryPlayRemoteAudio]);
 
   useEffect(() => {
     if (!channel?.id || Object.keys(remoteStreams).length === 0) return;
-    const id = setInterval(() => {
-      Object.values(audioElsRef.current).forEach(el => {
-        if (el?.srcObject && !el.muted && el.paused) el.play().catch(() => {});
-      });
-    }, 2000);
+    const id = setInterval(tryPlayRemoteAudio, 2000);
     return () => clearInterval(id);
-  }, [channel?.id, remoteStreams]);
+  }, [channel?.id, remoteStreams, tryPlayRemoteAudio]);
 
-  // ---- Sync deafen to remote audio ----
+  // ---- Sync deafen to remote audio (включая force_deafened) ----
   useEffect(() => {
+    const me = participants.find(p => Number(p.userId) === currentUserId);
+    const forceDeafened = !!me?.force_deafened;
+    const effective = deafened || forceDeafened;
     Object.values(audioElsRef.current).forEach(el => {
-      if (el) el.muted = deafened;
+      if (el) el.muted = effective;
     });
-  }, [deafened]);
+  }, [deafened, participants, currentUserId]);
 
   // ---- Send saved muted/deafened state on join ----
   useEffect(() => {
@@ -735,10 +741,12 @@ export default function VoicePanel({
             if (!el) { delete audioElsRef.current[userId]; return; }
             audioElsRef.current[userId] = el;
             el.srcObject = stream;
-            el.muted = deafened;
+            el.muted = effectiveDeafened;
             el.volume = Math.max(0, Math.min(1, outputGain));
             if (outputDeviceId && el.setSinkId) el.setSinkId(outputDeviceId).catch(() => {});
             el.play().catch(() => {});
+            setTimeout(() => el.play().catch(() => {}), 100);
+            setTimeout(() => el.play().catch(() => {}), 500);
           }}
           autoPlay
           playsInline
