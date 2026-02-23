@@ -930,11 +930,12 @@ input, select {
   padding-top: 4px;
 }
 
-/* Подряд идущие сообщения от одного человека — меньше отступов */
+/* Подряд идущие сообщения от одного человека — минимальный зазор, как в Discord */
 .message-compact {
   margin-top: 0;
-  padding-top: 2px;
-  padding-bottom: 2px;
+  margin-bottom: 0;
+  padding-top: 1px;
+  padding-bottom: 1px;
 }
 
 .message-compact .message-avatar-col {
