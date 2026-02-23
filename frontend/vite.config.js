@@ -8,6 +8,11 @@ export default defineConfig({
     'import.meta.env.BUILD_TIME': JSON.stringify(new Date().toISOString())
   },
   build: {
+    // Продакшен без минификации, чтобы избежать редких багов
+    // перетасовки кода/импортов (ReferenceError '... before initialization').
+    // Для оптимизации размера можно вернуть minify: 'esbuild' позже,
+    // когда стабилизируем архитектуру голоса.
+    minify: false,
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
