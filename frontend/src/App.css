@@ -2341,6 +2341,39 @@ input, select {
   cursor: help;
 }
 
+.voice-panel-enable-sound-banner {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #fff;
+  background: #5865f2;
+  border: 1px solid #4752c4;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, filter 0.15s;
+}
+.voice-panel-enable-sound-banner:hover {
+  background: #4752c4;
+  filter: brightness(1.05);
+}
+.voice-panel-enable-sound-banner:focus {
+  outline: 2px solid #7289da;
+  outline-offset: 2px;
+}
+.voice-panel-enable-sound-banner-title {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.voice-panel-enable-sound-banner-text {
+  display: block;
+  opacity: 0.95;
+  line-height: 1.35;
+}
+
 .voice-panel-enable-sound-btn {
   display: block;
   width: 100%;

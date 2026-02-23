@@ -41,6 +41,11 @@ export default function VoicePanel({
   const [duration, setDuration] = useState(0);
   const [hasLocalStream, setHasLocalStream] = useState(false);
   const [peerStates, setPeerStates] = useState({});
+  const [hasUserEnabledSound, setHasUserEnabledSound] = useState(false);
+
+  useEffect(() => {
+    if (!channel?.id || Object.keys(remoteStreams).length === 0) setHasUserEnabledSound(false);
+  }, [channel?.id, remoteStreams]);
 
   // ---- Refs ----
   const rawStreamRef = useRef(null);
@@ -619,7 +624,8 @@ export default function VoicePanel({
   };
   const avatarUrl = user?.avatar_url ? (user.avatar_url.startsWith('http') ? user.avatar_url : (window.__API_BASE__ || '') + user.avatar_url) : null;
 
-  const playAllRemoteAudio = () => {
+  const playAllRemoteAudio = (e) => {
+    if (e) e.stopPropagation?.();
     Object.values(audioElsRef.current).forEach(el => {
       if (el?.srcObject && !el.muted) {
         el.play().catch((err) => {
@@ -627,6 +633,7 @@ export default function VoicePanel({
         });
       }
     });
+    setHasUserEnabledSound(true);
   };
 
   // Connection quality indicator
@@ -640,6 +647,8 @@ export default function VoicePanel({
   })();
 
   const qualityColors = { good: '#3ba55c', fair: '#faa61a', bad: '#ed4245', connecting: '#747f8d', idle: '#747f8d' };
+
+  const needEnableSoundPrompt = inVoice && Object.keys(remoteStreams).length > 0 && !effectiveDeafened && !hasUserEnabledSound;
 
   return (
     <div
@@ -723,11 +732,23 @@ export default function VoicePanel({
         </div>
       </div>
       {micError && <span className="voice-panel-mic-error" title={micError}>⚠</span>}
-      {inVoice && Object.keys(remoteStreams).length > 0 && !deafened && (
+      {needEnableSoundPrompt && (
+        <div
+          className="voice-panel-enable-sound-banner"
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { e.stopPropagation(); playAllRemoteAudio(e); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playAllRemoteAudio(e); } }}
+        >
+          <span className="voice-panel-enable-sound-banner-title">Нет звука?</span>
+          <span className="voice-panel-enable-sound-banner-text">Браузер блокирует автовоспроизведение. Нажмите здесь, чтобы включить звук участников.</span>
+        </div>
+      )}
+      {inVoice && Object.keys(remoteStreams).length > 0 && !effectiveDeafened && !needEnableSoundPrompt && (
         <button
           type="button"
           className="voice-panel-enable-sound-btn"
-          onClick={e => { e.stopPropagation(); playAllRemoteAudio(); }}
+          onClick={(e) => { e.stopPropagation(); playAllRemoteAudio(e); }}
         >
           Включить звук участников
         </button>
